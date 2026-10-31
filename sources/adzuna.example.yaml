@@ -1,0 +1,9 @@
+# Adzuna API credentials. Free, but you must register:
+#   https://developer.adzuna.com/signup
+#
+# Copy this file to sources/adzuna.local.yaml and fill in the values.
+# The .local file is gitignored -- credentials never enter the repo.
+# ADZUNA_APP_ID / ADZUNA_APP_KEY environment variables work too and win.
+
+app_id: "your-app-id"
+app_key: "your-app-key"

@@ -1,0 +1,23 @@
+# The tests, on every push to main and every pull request. TeX is not installed
+# here -- it would add minutes to every run -- so the two tests that build a
+# resume PDF are skipped; they run wherever pdflatex is.
+#
+# The last step checks that no file meant to be shared carries personal data,
+# with the same check the template export runs.
+
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked --group test
+      - run: uv run --group test pytest
+      - run: uv run python scripts/export_template.py --check

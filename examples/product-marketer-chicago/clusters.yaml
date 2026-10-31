@@ -1,0 +1,81 @@
+# Role clusters for the fictional product-marketer example.
+#
+# Regexes are Python `re`, case-insensitive, applied to the posting TITLE. Check
+# a change before running a scan:
+#
+#     python scripts/fetch_jobs.py --all-clusters --preview \
+#         --clusters-file examples/product-marketer-chicago/clusters.yaml \
+#         --filters examples/product-marketer-chicago/filters.yaml
+
+version: 1
+
+scoring:
+  min_score: 65
+
+global:
+  # senior: about 10+ years. Keeps senior, principal, lead, manager, director,
+  # and head of; drops VP and above, and entry-level titles.
+  presets:
+    - senior
+    - no_internships
+    - no_hourly
+    - no_recruiting_hr
+    - no_legal
+  # Not no_sales or no_marketing. no_marketing would drop every role this
+  # profile wants, and no_sales drops any title with "sales" in it, which
+  # includes "Product Marketing Manager, Sales Enablement". When a preset goes
+  # too far, leave it out and write the parts you do want, as here:
+  exclude:
+    - '\b(account\s+executive|sales\s+development|business\s+development\s+rep|sdr|bdr|quota)\b'
+    - '\b(demand\s+gen\w*|marketing\s+(ops|operations|coordinator|assistant)|field\s+marketing|event\s+marketing|social\s+media)\b'
+    - '\b(brand\s+ambassador|consumer\s+marketing|cpg)\b'
+
+clusters:
+
+  - id: product-marketing
+    label: Senior to head-of product marketing
+    default_resume: chronological
+    rationale: >
+      The main line. Director or head of product marketing is the goal; a group
+      or principal role at a larger company is a good step toward it.
+    search_terms:
+      - director product marketing
+      - head of product marketing
+      - senior product marketing manager
+      - group product marketing manager
+      - principal product marketing manager
+    include:
+      - '\bproduct\s+marketing\b'
+      - '\b(g?pmm)\b'
+      - '\b(solutions?|portfolio)\s+marketing\s+(manager|lead|director)\b'
+    exclude:
+      # Below Avery's level, including campus and MBA hiring.
+      - '\b(associate|coordinator|mba|campus|university)\b'
+
+  - id: gtm-strategy
+    label: Go-to-market strategy, launches, and competitive intelligence
+    default_resume: chronological
+    rationale: >
+      Adjacent roles built on the same evidence -- launches, win/loss, pricing --
+      more common at large companies.
+    min_score: 70
+    scoring_note: >
+      Many GTM titles are sales operations in disguise. Score down any posting
+      whose work is territory planning, quota setting, or CRM administration.
+    search_terms:
+      - go to market strategy lead
+      - product launch lead
+      - competitive intelligence manager
+    include:
+      # "GTM" alone is everywhere -- "Data Engineer, GTM" -- so it needs a
+      # strategy or leadership word beside it.
+      - '\b(gtm|go[\s-]to[\s-]market)\s+(strategy|strategist|lead|leader|manager|director)\b'
+      - '\b(head|director|lead|manager)\b,?\s+(of\s+)?(gtm|go[\s-]to[\s-]market)\b'
+      - '\blaunch\s+(lead|manager|director)\b'
+      - '\bcompetitive\s+(intelligence|insights?)\b'
+      - '\bmarket\s+(strategy|intelligence)\s+(lead|manager|director)\b'
+    exclude:
+      # GTM engineering, technical, data, finance, recruiting, and partnership
+      # tracks.
+      - '\b(engineer\w*|developer|architect|administrator|technical|tech|data|scientist|systems)\b'
+      - '\b(finance|operations|ops|revenue|recruit\w*|partner\w*)\b'

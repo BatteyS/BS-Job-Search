@@ -1,0 +1,52 @@
+% Layout template for scripts/build_resume.py. No content lives here: every fact
+% comes from content/master.md and the contact line from content/contact.local.md.
+% Placeholders in double percent signs are filled at build time. The
+% chronological and split layouts share this file; they differ only in the
+% section headings the builder writes.
+
+\documentclass[11pt, letterpaper]{article}
+
+\usepackage[top=%%VMARGIN%%, bottom=%%VMARGIN%%, left=%%HMARGIN%%, right=%%HMARGIN%%]{geometry}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{newtxtext}
+
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{titlesec}
+
+\hypersetup{colorlinks=true, urlcolor=black, linkcolor=black}
+
+\titleformat{\section}
+  {\normalfont\bfseries\large\uppercase}
+  {}
+  {0em}
+  {}
+  [\vspace{-9pt}\rule{\linewidth}{1.5pt}]
+\titlespacing{\section}{0pt}{%%SECSPACE%%}{0pt}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0pt}
+
+\setlist[itemize]{
+  leftmargin=1.5em,
+  itemsep=%%ITEMSEP%%,
+  topsep=0pt,
+  parsep=0pt,
+  label=\textbullet}
+
+\begin{document}\pagestyle{empty}
+
+\begin{center}
+  \textbf{\LARGE %%NAME%%} \\[2pt]
+  %%CONTACT%%
+\end{center}
+\vspace{-15pt}
+
+%%BODY%%
+
+% For the builder's slack report: the height the last page holds, the height
+% used so far, and one line's height.
+\par\typeout{RESUME-SLACK \the\pagegoal\space\the\pagetotal\space\the\baselineskip}
+\end{document}

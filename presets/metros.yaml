@@ -1,0 +1,1329 @@
+# US metros to choose from, and what every scan knows about place names.
+#
+# `metros` is a menu. /setup copies the ones a user picks, whole, into
+# profile/filters.yaml (or copy them yourself), where each becomes theirs to edit:
+# add a suburb, drop one, set its penalty.
+# A scan reads only the names from here, so that a city inside a longer name
+# is not taken for itself: "Mesa" in "Costa Mesa" is not Phoenix, even for a
+# profile without Los Angeles.
+#
+# The two lists at the end are read by every scan, on top of whatever
+# filters.yaml adds:
+#
+#   ambiguous_cities  names that count only beside a state that fits: "Dublin"
+#                     alone could be Ireland, Ohio, or the Bay Area suburb.
+#   non_us_markers    words that put a place outside the US.
+#
+# Each metro has:
+#   search_as   where the aggregators (Adzuna, USAJOBS, Indeed and the other
+#               scraped boards) search, "City, ST", within 40 miles. A metro
+#               wider than that lists two.
+#   states      a posting that names a state must name one of these.
+#   cities      place names a posting's location may use, lowercase.
+#   regions     names for the area itself ("bay area", "dfw").
+#
+# Rules tests/test_locations.py holds this file to: a name listed under two
+# metros is also in ambiguous_cities; every `search_as` place lands inside its
+# own metro; and "City, ST" for every city resolves to its own metro.
+#
+# Seven metros (bay_area through boston) are the ones this workflow has run on
+# since 2026-08. The rest were added 2026-10-29 for new users and have not yet
+# met a real scan, so check a new metro's first digest for strays.
+
+version: 1
+
+metros:
+  bay_area:
+    search_as: ["San Francisco, CA", "San Jose, CA"]
+    states: [CA]
+    cities:
+      - san francisco
+      - south san francisco
+      - oakland
+      - berkeley
+      - emeryville
+      - alameda
+      - richmond
+      - san jose
+      - santa clara
+      - sunnyvale
+      - mountain view
+      - palo alto
+      - menlo park
+      - redwood city
+      - san carlos
+      - belmont
+      - san mateo
+      - foster city
+      - burlingame
+      - millbrae
+      - san bruno
+      - daly city
+      - brisbane
+      - fremont
+      - newark
+      - union city
+      - hayward
+      - milpitas
+      - cupertino
+      - campbell
+      - los gatos
+      - saratoga
+      - livermore
+      - pleasanton
+      - dublin
+      - walnut creek
+      - concord
+      - martinez
+      - benicia
+      - vallejo
+      - fairfield
+      - novato
+      - san rafael
+      - sausalito
+      - petaluma
+      - santa rosa
+    regions:
+      - bay area
+      - sf bay
+      - silicon valley
+      - east bay
+      - south bay
+      - north bay
+      - peninsula
+
+  new_york:
+    search_as: New York, NY
+    states: [NY, NJ, CT]
+    cities:
+      - new york
+      - new york city
+      - manhattan
+      - brooklyn
+      - queens
+      - bronx
+      - long island city
+      - jersey city
+      - hoboken
+      - newark
+      - white plains
+      - yonkers
+      - stamford
+      - greenwich
+      - new rochelle
+    regions:
+      - nyc
+      - tri-state
+
+  chicago:
+    search_as: Chicago, IL
+    states: [IL]
+    cities:
+      - chicago
+      - evanston
+      - naperville
+      - schaumburg
+      - oak brook
+      - skokie
+      - aurora
+      - elgin
+      - lemont          # Argonne National Laboratory
+      - batavia         # Fermilab
+    regions:
+      - chicagoland
+
+  # Denver and the Front Range, Golden's NREL included.
+  colorado:
+    search_as: Denver, CO
+    states: [CO]
+    cities:
+      - golden          # NREL
+      - denver
+      - boulder
+      - arvada
+      - broomfield
+      - wheat ridge
+      - longmont
+      - fort collins
+      - lakewood
+      - westminster
+      - littleton
+      - englewood
+      - centennial
+      - thornton
+    regions:
+      - front range
+      - denver metro
+
+  seattle:
+    search_as: Seattle, WA
+    states: [WA]
+    cities:
+      - seattle
+      - bellevue
+      - redmond
+      - kirkland
+      - everett
+      - tacoma
+      - renton
+      - bothell
+      - sammamish
+      - issaquah
+      - bremerton
+    regions:
+      - puget sound
+
+  # Orange County included; its second search point is Irvine.
+  los_angeles:
+    search_as: ["Los Angeles, CA", "Irvine, CA"]
+    states: [CA]
+    cities:
+      - los angeles
+      - el segundo
+      - santa monica
+      - pasadena
+      - burbank
+      - glendale
+      - culver city
+      - torrance
+      - long beach
+      - hawthorne
+      - inglewood
+      - carson
+      - cerritos
+      - van nuys
+      - north hollywood
+      - marina del rey
+      - playa vista
+      - irvine
+      - costa mesa
+      - anaheim
+      - santa ana
+      - orange
+    regions:
+      - orange county
+      - san fernando valley
+      - southern california
+
+  boston:
+    search_as: Boston, MA
+    states: [MA]
+    cities:
+      - boston
+      - cambridge
+      - somerville
+      - medford
+      - malden
+      - everett
+      - chelsea
+      - charlestown
+      - watertown
+      - waltham
+      - newton
+      - brookline
+      - quincy
+      - woburn
+      - burlington
+      - bedford
+      - lexington
+      - natick
+      - framingham
+      - marlborough
+      - billerica
+      - andover
+      - lowell
+      - devens
+      - worcester
+    regions:
+      - greater boston
+
+  atlanta:
+    search_as: Atlanta, GA
+    states: [GA]
+    cities:
+      - atlanta
+      - sandy springs
+      - alpharetta
+      - marietta
+      - roswell
+      - kennesaw
+      - norcross
+      - peachtree corners
+      - peachtree city
+      - duluth
+      - johns creek
+      - dunwoody
+      - decatur
+      - smyrna
+      - college park
+      - east point
+      - hapeville
+      - lawrenceville
+      - suwanee
+      - buford
+      - conyers
+      - mcdonough
+      - douglasville
+      - newnan
+      - chamblee
+      - doraville
+
+  austin:
+    search_as: Austin, TX
+    states: [TX]
+    cities:
+      - austin
+      - round rock
+      - cedar park
+      - georgetown
+      - pflugerville
+      - leander
+      - san marcos
+      - kyle
+      - buda
+      - lakeway
+      - bee cave
+      - hutto
+      - west lake hills
+      - del valle
+
+  baltimore:
+    search_as: Baltimore, MD
+    states: [MD]
+    cities:
+      - baltimore
+      - towson
+      - columbia
+      - ellicott city
+      - glen burnie
+      - annapolis
+      - linthicum
+      - hunt valley
+      - owings mills
+      - fort meade      # NSA
+      - catonsville
+      - hanover
+      - timonium
+      - white marsh
+      - odenton
+      - severna park
+      - aberdeen proving ground
+
+  charlotte:
+    search_as: Charlotte, NC
+    states: [NC, SC]
+    cities:
+      - charlotte
+      - concord
+      - huntersville
+      - matthews
+      - mooresville
+      - cornelius
+      - gastonia
+      - kannapolis
+      - fort mill
+      - rock hill
+      - ballantyne
+      - pineville
+      - indian trail
+      - mint hill
+
+  cincinnati:
+    search_as: Cincinnati, OH
+    states: [OH, KY, IN]
+    cities:
+      - cincinnati
+      - mason
+      - west chester
+      - blue ash
+      - fairfield
+      - hamilton
+      - covington
+      - erlanger
+      - sharonville
+      - evendale
+      - fort mitchell
+      - fort thomas
+      - mariemont
+    regions:
+      - northern kentucky
+
+  cleveland:
+    search_as: Cleveland, OH
+    states: [OH]
+    cities:
+      - cleveland
+      - beachwood
+      - mayfield heights
+      - mayfield village
+      - solon
+      - strongsville
+      - brecksville
+      - north olmsted
+      - elyria
+      - lorain
+      - lakewood
+      - middleburg heights
+      - highland heights
+      - warrensville heights
+      - brook park
+      - broadview heights
+      - shaker heights
+      - willoughby
+      - wickliffe
+      - twinsburg
+      - avon lake
+      - bay village
+      - rocky river
+      - fairview park
+      - garfield heights
+      - maple heights
+
+  columbus:
+    search_as: Columbus, OH
+    states: [OH]
+    cities:
+      - columbus
+      - dublin
+      - westerville
+      - worthington
+      - hilliard
+      - grove city
+      - new albany
+      - gahanna
+      - reynoldsburg
+      - upper arlington
+      - lewis center
+      - plain city
+      - canal winchester
+      - pickerington
+      - groveport
+      - obetz
+      - grandview heights
+      - bexley
+      - powell
+      - newark
+
+  dallas:
+    search_as: ["Dallas, TX", "Fort Worth, TX"]
+    states: [TX]
+    cities:
+      - dallas
+      - fort worth
+      - ft. worth
+      - ft worth
+      - arlington
+      - plano
+      - irving
+      - frisco
+      - richardson
+      - addison
+      - carrollton
+      - mckinney
+      - garland
+      - denton
+      - lewisville
+      - coppell
+      - grapevine
+      - southlake
+      - las colinas
+      - grand prairie
+      - mesquite
+      - flower mound
+      - rockwall
+      - rowlett
+      - euless
+      - bedford
+      - hurst
+      - north richland hills
+      - keller
+      - burleson
+      - cedar hill
+      - desoto
+      - duncanville
+      - farmers branch
+      - wylie
+      - prosper
+      - little elm
+      - haltom city
+      - weatherford
+      - waxahachie
+    regions:
+      - dfw
+      - metroplex
+      - north texas
+
+  detroit:
+    search_as: Detroit, MI
+    states: [MI]
+    cities:
+      - detroit
+      - dearborn
+      - dearborn heights
+      - southfield
+      - troy
+      - warren
+      - livonia
+      - novi
+      - farmington hills
+      - auburn hills
+      - ann arbor
+      - sterling heights
+      - royal oak
+      - pontiac
+      - rochester hills
+      - bloomfield hills
+      - birmingham
+      - plymouth
+      - canton
+      - wixom
+      - romulus
+      - westland
+      - madison heights
+      - allen park
+      - ypsilanti
+      - macomb
+      - northville
+      - ferndale
+      - shelby township
+      - grosse pointe
+      - lake orion
+
+  houston:
+    search_as: Houston, TX
+    states: [TX]
+    cities:
+      - houston
+      - the woodlands
+      - sugar land
+      - katy
+      - pasadena
+      - pearland
+      - league city
+      - baytown
+      - conroe
+      - kingwood
+      - bellaire
+      - tomball
+      - missouri city
+      - clear lake
+      - friendswood
+      - seabrook
+      - galveston
+      - channelview
+      - richmond
+      - rosenberg
+      - texas city
+      - alvin
+    regions:
+      - energy corridor
+      - greater houston
+
+  indianapolis:
+    search_as: Indianapolis, IN
+    states: [IN]
+    cities:
+      - indianapolis
+      - carmel
+      - fishers
+      - noblesville
+      - zionsville
+      - brownsburg
+      - whitestown
+      - mccordsville
+      - franklin
+      - beech grove
+
+  kansas_city:
+    search_as: Kansas City, MO
+    states: [MO, KS]
+    cities:
+      - kansas city
+      - north kansas city
+      - overland park
+      - olathe
+      - lenexa
+      - leawood
+      - lee's summit
+      - lees summit
+      - shawnee
+      - merriam
+      - prairie village
+      - blue springs
+      - raytown
+      - raymore
+      - parkville
+
+  las_vegas:
+    search_as: Las Vegas, NV
+    states: [NV]
+    cities:
+      - las vegas
+      - north las vegas
+      - henderson
+      - summerlin
+      - boulder city
+
+  # Miami, Fort Lauderdale, and Palm Beach.
+  miami:
+    search_as: ["Miami, FL", "West Palm Beach, FL"]
+    states: [FL]
+    cities:
+      - miami
+      - miami beach
+      - miami gardens
+      - miami lakes
+      - fort lauderdale
+      - ft. lauderdale
+      - ft lauderdale
+      - boca raton
+      - west palm beach
+      - palm beach
+      - palm beach gardens
+      - doral
+      - coral gables
+      - hollywood
+      - aventura
+      - pompano beach
+      - delray beach
+      - deerfield beach
+      - boynton beach
+      - hialeah
+      - homestead
+      - pembroke pines
+      - miramar
+      - davie
+      - coconut creek
+      - coral springs
+      - tamarac
+      - lauderhill
+      - key biscayne
+      - brickell
+      - wynwood
+    regions:
+      - south florida
+
+  minneapolis:
+    search_as: Minneapolis, MN
+    states: [MN, WI]
+    cities:
+      - minneapolis
+      - st. paul
+      - st paul
+      - saint paul
+      - bloomington
+      - eden prairie
+      - edina
+      - minnetonka
+      - plymouth
+      - eagan
+      - maple grove
+      - golden valley
+      - roseville
+      - brooklyn park
+      - brooklyn center
+      - burnsville
+      - shakopee
+      - chaska
+      - arden hills
+      - richfield
+      - fridley
+      - st. louis park
+      - saint louis park
+      - lakeville
+      - apple valley
+      - inver grove heights
+      - mendota heights
+      - new brighton
+      - coon rapids
+      - blaine
+      - anoka
+      - wayzata
+      - chanhassen
+      - prior lake
+      - white bear lake
+    regions:
+      - twin cities
+
+  nashville:
+    search_as: Nashville, TN
+    states: [TN]
+    cities:
+      - nashville
+      - franklin
+      - brentwood
+      - murfreesboro
+      - smyrna
+      - hendersonville
+      - mount juliet
+      - mt. juliet
+      - gallatin
+      - cool springs
+      - la vergne
+      - goodlettsville
+      - nolensville
+      - thompson's station
+      - columbia
+
+  orlando:
+    search_as: Orlando, FL
+    states: [FL]
+    cities:
+      - orlando
+      - lake mary
+      - winter park
+      - kissimmee
+      - sanford
+      - altamonte springs
+      - maitland
+      - oviedo
+      - winter garden
+      - lake buena vista
+      - clermont
+      - apopka
+      - ocoee
+      - longwood
+      - casselberry
+      - deltona
+
+  philadelphia:
+    search_as: Philadelphia, PA
+    states: [PA, NJ, DE]
+    cities:
+      - philadelphia
+      - king of prussia
+      - conshohocken
+      - west conshohocken
+      - malvern
+      - plymouth meeting
+      - blue bell
+      - fort washington
+      - horsham
+      - radnor
+      - bala cynwyd
+      - exton
+      - west chester
+      - chesterbrook
+      - doylestown
+      - lansdale
+      - collegeville
+      - spring house
+      - norristown
+      - glen mills
+      - newtown square
+      - wynnewood
+      - bryn mawr
+      - villanova
+      - haverford
+      - swarthmore
+      - ardmore
+      - willow grove
+      - ambler
+      - yardley
+      - langhorne
+      - bensalem
+      - camden
+      - cherry hill
+      - mount laurel
+      - mt. laurel
+      - moorestown
+      - marlton
+      - voorhees
+      - glassboro
+      - princeton
+      - trenton
+      - wilmington
+    regions:
+      - philly
+      - delaware valley
+
+  phoenix:
+    search_as: Phoenix, AZ
+    states: [AZ]
+    cities:
+      - phoenix
+      - scottsdale
+      - tempe
+      - mesa
+      - chandler
+      - gilbert
+      - glendale
+      - peoria
+      - tolleson
+      - queen creek
+      - fountain hills
+      - paradise valley
+      - cave creek
+      - sun city
+      - el mirage
+      - litchfield park
+      - apache junction
+      - ahwatukee
+
+  pittsburgh:
+    search_as: Pittsburgh, PA
+    states: [PA]
+    cities:
+      - pittsburgh
+      - cranberry township
+      - canonsburg
+      - monroeville
+      - wexford
+      - sewickley
+      - coraopolis
+      - bridgeville
+      - greensburg
+      - moon township
+      - robinson township
+      - bethel park
+      - mt. lebanon
+      - mount lebanon
+      - munhall
+      - mckeesport
+      - warrendale
+      - gibsonia
+      - latrobe
+      - irwin
+      - harmarville
+
+  portland:
+    search_as: Portland, OR
+    states: [OR, WA]
+    cities:
+      - portland
+      - beaverton
+      - hillsboro
+      - lake oswego
+      - tigard
+      - tualatin
+      - gresham
+      - vancouver      # only beside WA: alone it reads as British Columbia
+      - camas
+      - washougal
+      - wilsonville
+      - milwaukie
+      - clackamas
+      - oregon city
+      - west linn
+      - forest grove
+      - troutdale
+      - newberg
+      - mcminnville
+      - canby
+
+  raleigh:
+    search_as: Raleigh, NC
+    states: [NC]
+    cities:
+      - raleigh
+      - durham
+      - chapel hill
+      - cary
+      - morrisville
+      - research triangle park
+      - rtp
+      - apex
+      - wake forest
+      - holly springs
+      - garner
+      - fuquay-varina
+      - knightdale
+      - pittsboro
+      - mebane
+      - rolesville
+      - zebulon
+    regions:
+      - research triangle
+      - the triangle
+
+  sacramento:
+    search_as: Sacramento, CA
+    states: [CA]
+    cities:
+      - sacramento
+      - west sacramento
+      - roseville
+      - rancho cordova
+      - folsom
+      - elk grove
+      - davis
+      - citrus heights
+      - carmichael
+      - el dorado hills
+      - rocklin
+      - natomas
+      - mcclellan park
+      - north highlands
+      - granite bay
+      - placerville
+      - cameron park
+      - shingle springs
+
+  # Salt Lake City down through Provo -- the "Silicon Slopes" corridor.
+  salt_lake_city:
+    search_as: ["Salt Lake City, UT", "Provo, UT"]
+    states: [UT]
+    cities:
+      - salt lake city
+      - salt lake
+      - south salt lake
+      - west valley city
+      - sandy
+      - draper
+      - lehi
+      - south jordan
+      - west jordan
+      - provo
+      - orem
+      - american fork
+      - pleasant grove
+      - midvale
+      - cottonwood heights
+      - holladay
+      - millcreek
+      - bountiful
+      - taylorsville
+      - herriman
+      - bluffdale
+      - saratoga springs
+    regions:
+      - silicon slopes
+      - wasatch front
+
+  san_antonio:
+    search_as: San Antonio, TX
+    states: [TX]
+    cities:
+      - san antonio
+      - new braunfels
+      - schertz
+      - boerne
+      - helotes
+      - seguin
+      - cibolo
+      - leon valley
+      - alamo heights
+
+  san_diego:
+    search_as: San Diego, CA
+    states: [CA]
+    cities:
+      - san diego
+      - la jolla
+      - carlsbad
+      - oceanside
+      - escondido
+      - chula vista
+      - el cajon
+      - poway
+      - san marcos
+      - rancho bernardo
+      - sorrento valley
+      - torrey pines
+      - del mar
+      - encinitas
+      - solana beach
+      - kearny mesa
+      - mira mesa
+      - otay mesa
+      - la mesa
+      - santee
+      - coronado
+      - mission valley
+      - point loma
+      - camp pendleton
+
+  st_louis:
+    search_as: St. Louis, MO
+    states: [MO, IL]
+    cities:
+      - st. louis
+      - st louis
+      - saint louis
+      - east st. louis
+      - clayton
+      - chesterfield
+      - creve coeur
+      - maryland heights
+      - st. charles
+      - saint charles
+      - st. peters
+      - o'fallon
+      - florissant
+      - brentwood
+      - ballwin
+      - earth city
+      - webster groves
+      - university city
+      - des peres
+      - wentzville
+      - hazelwood
+      - bridgeton
+      - edwardsville
+      - collinsville
+      - granite city
+      - scott air force base
+
+  tampa:
+    search_as: Tampa, FL
+    states: [FL]
+    cities:
+      - tampa
+      - st. petersburg
+      - st petersburg
+      - saint petersburg
+      - clearwater
+      - largo
+      - lakeland
+      - wesley chapel
+      - palm harbor
+      - oldsmar
+      - plant city
+      - temple terrace
+      - lutz
+      - new port richey
+      - pinellas park
+      - ybor city
+      - macdill air force base
+    regions:
+      - tampa bay
+
+  # The District with Northern Virginia and suburban Maryland. "Washington"
+  # alone is a state, so the city is listed only with "DC" after it.
+  washington_dc:
+    search_as: Washington, DC
+    states: [DC, VA, MD]
+    cities:
+      - washington, dc
+      - washington, d.c.
+      - washington dc
+      - washington d.c.
+      - district of columbia
+      - arlington
+      - alexandria
+      - mclean
+      - tysons
+      - tysons corner
+      - reston
+      - herndon
+      - fairfax
+      - vienna
+      - chantilly
+      - falls church
+      - springfield
+      - annandale
+      - merrifield
+      - dunn loring
+      - centreville
+      - dulles
+      - ashburn
+      - sterling
+      - leesburg
+      - manassas
+      - lorton
+      - fort belvoir
+      - quantico
+      - crystal city
+      - bethesda
+      - chevy chase
+      - rockville
+      - silver spring
+      - gaithersburg
+      - germantown
+      - frederick
+      - takoma park
+      - college park
+      - greenbelt
+      - hyattsville
+      - lanham
+      - landover
+      - bowie
+      - upper marlboro
+      - laurel
+      - national harbor
+      - joint base andrews
+    regions:
+      - dmv
+      - northern virginia
+      - national capital region
+
+# Names that count only beside a state that fits. Some sit in two metros above
+# (Glendale is both Los Angeles and Phoenix); the rest have a namesake big
+# enough, or a foreign one, that a bare mention is a guess.
+ambiguous_cities:
+  - newark          # CA, NJ, DE, OH
+  - cambridge       # MA, England, Ontario
+  - everett         # MA, WA
+  - richmond        # CA, VA, TX, British Columbia
+  - fairfield       # CA, CT, OH
+  - burlington      # MA, VT, NJ, Ontario
+  - bedford         # MA, TX, England
+  - aurora          # CO, IL
+  - orange          # CA, CT, NJ
+  - franklin        # TN, IN, MA
+  - springfield     # VA, IL, MA, MO
+  - lakewood        # CO, NJ, OH, WA, CA
+  - westminster     # CO, CA, MD, London
+  - littleton       # CO, MA, NH
+  - englewood       # CO, NJ, OH
+  - dublin          # CA, OH, Ireland
+  - brisbane        # CA, Australia
+  - concord         # CA, NC, NH, MA
+  - union city      # CA, NJ, GA
+  - lexington       # MA, KY
+  - glendale        # CA, AZ
+  - pasadena        # CA, TX
+  - peoria          # AZ, IL
+  - arlington       # VA, TX
+  - columbia        # MD, SC, MO, TN
+  - college park    # MD, GA
+  - georgetown      # TX, DC, KY
+  - san marcos      # TX, CA
+  - vienna          # VA, Austria
+  - hollywood       # FL, CA
+  - plymouth        # MN, MI, MA
+  - bloomington     # MN, IN, IL
+  - roseville       # CA, MN
+  - brentwood       # TN, MO, CA
+  - smyrna          # GA, TN
+  - decatur         # GA, IL, AL
+  - duluth          # GA, MN
+  - west chester    # PA, OH
+  - hamilton        # OH, NJ, Ontario
+  - clayton         # MO, NC, GA
+  - chesterfield    # MO, VA, England
+  - wilmington      # DE, NC
+  - hanover         # MD, NH, PA
+  - germantown      # MD, TN, WI, Philadelphia
+  - troy            # MI, NY
+  - warren          # MI, OH
+  - canton          # MI, OH, GA
+  - birmingham      # MI, AL, England
+
+# Words that put a place outside the US. Whole words only, and a place that
+# also names a US state or the US is kept: "Vancouver, WA", "Paris, TX",
+# "Albuquerque, New Mexico". So a city with a big US namesake (Birmingham,
+# Rome, Naples, Vienna) is left off, or "Rome, GA" would be read as Italy.
+non_us_markers:
+  # Regions
+  - emea
+  - apac
+  - latam
+  - europe
+  - asia
+  - africa
+  - middle east
+  - oceania
+  - nordics
+  - benelux
+  # Europe
+  - united kingdom
+  - uk
+  - england
+  - scotland
+  - wales
+  - ireland
+  - london
+  - gloucestershire
+  - manchester, uk
+  - edinburgh
+  - glasgow
+  - belfast
+  - leeds
+  - germany
+  - berlin
+  - munich
+  - hamburg
+  - frankfurt
+  - cologne
+  - stuttgart
+  - dusseldorf
+  - düsseldorf
+  - france
+  - paris
+  - lyon
+  - toulouse
+  - netherlands
+  - amsterdam
+  - rotterdam
+  - eindhoven
+  - utrecht
+  - the hague
+  - belgium
+  - brussels
+  - antwerp
+  - luxembourg
+  - spain
+  - madrid
+  - barcelona
+  - bilbao
+  - malaga
+  - portugal
+  - lisbon
+  - porto
+  - italy
+  - switzerland
+  - zurich
+  - basel
+  - lausanne
+  - austria
+  - sweden
+  - stockholm
+  - norway
+  - oslo
+  - denmark
+  - copenhagen
+  - finland
+  - helsinki
+  - iceland
+  - reykjavik
+  - estonia
+  - tallinn
+  - latvia
+  - riga
+  - lithuania
+  - vilnius
+  - poland
+  - warsaw
+  - krakow
+  - kraków
+  - wroclaw
+  - gdansk
+  - czech republic
+  - czechia
+  - prague
+  - hungary
+  - budapest
+  - romania
+  - bucharest
+  - bulgaria
+  - sofia
+  - serbia
+  - belgrade
+  - croatia
+  - zagreb
+  - greece
+  - ukraine
+  - kyiv
+  - kiev
+  - russia
+  - moscow
+  # Middle East and Africa
+  - israel
+  - tel aviv
+  - jerusalem
+  - haifa
+  - herzliya
+  - united arab emirates
+  - uae
+  - dubai
+  - abu dhabi
+  - saudi arabia
+  - riyadh
+  - qatar
+  - doha
+  - beirut
+  - amman
+  - tbilisi
+  - istanbul
+  - egypt
+  - morocco
+  - nigeria
+  - lagos
+  - ghana
+  - accra
+  - kenya
+  - nairobi
+  - south africa
+  - cape town
+  - johannesburg
+  # Asia and the Pacific
+  - india
+  - bangalore
+  - bengaluru
+  - hyderabad
+  - mumbai
+  - pune
+  - chennai
+  - delhi
+  - gurgaon
+  - gurugram
+  - noida
+  - kolkata
+  - ahmedabad
+  - pakistan
+  - karachi
+  - lahore
+  - bangladesh
+  - dhaka
+  - sri lanka
+  - china
+  - shanghai
+  - beijing
+  - shenzhen
+  - guangzhou
+  - hangzhou
+  - chengdu
+  - hong kong
+  - taiwan
+  - taipei
+  - japan
+  - tokyo
+  - osaka
+  - kyoto
+  - korea
+  - seoul
+  - singapore
+  - malaysia
+  - kuala lumpur
+  - indonesia
+  - jakarta
+  - thailand
+  - bangkok
+  - vietnam
+  - hanoi
+  - ho chi minh
+  - philippines
+  - manila
+  - australia
+  - sydney
+  - melbourne
+  - new zealand
+  - auckland
+  # The Americas
+  - canada
+  - toronto
+  - vancouver
+  - montreal
+  - ottawa
+  - calgary
+  - edmonton
+  - winnipeg
+  - mississauga
+  - kitchener
+  - halifax
+  - quebec
+  - british columbia
+  - alberta
+  - nova scotia
+  - mexico
+  - guadalajara
+  - monterrey
+  - tijuana
+  - costa rica
+  - guatemala
+  - colombia
+  - bogota
+  - bogotá
+  - medellin
+  - medellín
+  - peru
+  - brazil
+  - sao paulo
+  - são paulo
+  - rio de janeiro
+  - argentina
+  - buenos aires
+  - chile
+  - uruguay
+  - montevideo

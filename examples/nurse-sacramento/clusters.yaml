@@ -1,0 +1,103 @@
+# Role clusters for the fictional nurse example. See profile/clusters.yaml in a
+# real profile for what each key does; this file shows them in use.
+#
+# Regexes are Python `re`, case-insensitive, applied to the posting TITLE. Check
+# a change before running a scan:
+#
+#     python scripts/fetch_jobs.py --all-clusters --preview \
+#         --clusters-file examples/nurse-sacramento/clusters.yaml \
+#         --filters examples/nurse-sacramento/filters.yaml
+
+version: 1
+
+scoring:
+  min_score: 60
+
+global:
+  # mid_career: about 4-10 years. Keeps senior and lead titles, drops director
+  # and above, and new-graduate residencies.
+  presets:
+    - mid_career
+    - no_internships
+    - no_hourly          # also drops "Patient Care Technician" and part-time roles
+    - no_sales
+    - no_recruiting_hr
+    - no_marketing
+    - no_legal
+  exclude:
+    # Other license levels, and the work arrangements profile.md rules out.
+    - '\b(lvn|lpn|cna|certified\s+nursing\s+assistant|medical\s+assistant)\b'
+    - '\b(travel|traveler|per\s+diem|prn|contract)\b'
+    # Units Jordan has no experience in.
+    - '\b(pediatric|peds|picu|nicu|neonatal|labor\s+(and|&)\s+delivery|l&d)\b'
+    # Advanced practice needs a license Jordan does not have.
+    - '\b(nurse\s+practitioner|np|clinical\s+nurse\s+specialist|crna)\b'
+  # Deliberately NOT excluded: night shift. profile.md scores it down rather
+  # than ruling it out, because a night charge role can still be a step up.
+
+clusters:
+
+  - id: clinical-informatics
+    label: Clinical informatics and Epic analyst roles
+    default_resume: chronological
+    rationale: >
+      Where Jordan wants to go. The Epic super-user work and the informatics
+      certificate are the bridge from the bedside.
+    min_score: 55
+    scoring_note: >
+      A posting that asks for a nursing background in an analyst title values
+      exactly what Jordan has. Do not score down for a missing Epic
+      certification when the posting says it trains or sponsors one.
+    search_terms:
+      - clinical informatics nurse
+      - nurse informaticist
+      - epic clinical analyst
+      - clinical applications analyst
+    usajobs_terms:
+      - nurse
+    include:
+      # Covers the VA's "Nurse (Informatics)" as well as "Nurse Informaticist".
+      - '\b(clinical|nursing|nurse|rn)\b.{0,5}\binformatic\w*'
+      - '\binformatics\s+(nurse|rn|specialist|analyst|coordinator)\b'
+      - '\bepic\b.{0,30}\b(analyst|specialist|trainer|clindoc)\b'
+      - '\bclinical\s+(applications?|systems?)\s+(analyst|specialist)\b'
+    exclude:
+      # Epic analyst work with no clinical side.
+      - '\b(pharmacy|beaker|lab|laboratory|radiology|radiant|resolute|billing|revenue\s+cycle)\b'
+
+  - id: nurse-educator
+    label: Clinical nurse educator and professional development
+    default_resume: chronological
+    rationale: >
+      The second route off the bedside. Precepting and training were the parts
+      of every project Jordan enjoyed most.
+    search_terms:
+      - clinical nurse educator
+      - nurse educator
+      - clinical practice specialist nursing
+    usajobs_terms:
+      - nurse
+    include:
+      - '\b(clinical\s+)?nurse\s+educator\b'
+      - '\b(clinical|nursing)\s+(education|practice)\s+(specialist|coordinator|consultant)\b'
+      - '\bprofessional\s+development\s+(specialist|coordinator|nurse)\b'
+      - '\bnurse\s+residency\s+(program\s+)?(coordinator|manager)\b'
+
+  - id: cardiac-critical-care
+    label: Cardiac critical care, step-down, and charge roles
+    default_resume: chronological
+    rationale: >
+      Still worth a move when it is a step up: a clinical ladder, a charge role,
+      or a Magnet hospital. profile.md scores lateral moves down.
+    min_score: 70
+    search_terms:
+      - cvicu registered nurse
+      - cardiac icu nurse
+      - critical care registered nurse
+      - icu charge nurse
+    usajobs_terms:
+      - nurse
+    include:
+      - '\b(rn|registered\s+nurse|nurse)\b.{0,50}\b(icu|cvicu|ccu|critical\s+care|intensive\s+care|cardiac|cardiovascular|step[\s-]?down|pcu|progressive\s+care|telemetry)\b'
+      - '\b(icu|cvicu|ccu|critical\s+care|intensive\s+care|cardiac|cardiovascular|step[\s-]?down|pcu|progressive\s+care|telemetry)\b.{0,50}\b(rn|registered\s+nurse|nurse)\b'
+      - '\bcharge\s+nurse\b'

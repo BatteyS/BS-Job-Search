@@ -1,0 +1,102 @@
+# Ready-made title exclusions, named in profile/clusters.yaml under
+# `global.presets`.
+#
+# Each preset is a list of Python regexes, matched case-insensitively against the
+# posting TITLE, exactly like `global.exclude`. A profile names the presets it
+# wants and they are added to its own `global.exclude`. If a preset drops roles
+# you want, stop using it and copy the patterns you do want into
+# `global.exclude` instead.
+#
+# Seniority presets drop titles outside a career stage -- pick one at most. Job
+# type presets drop whole tracks -- pick any. Check what a choice does before
+# trusting it:
+#
+#     python scripts/fetch_jobs.py --clusters <id> --preview
+#
+# lists, per cluster, the titles that get through and the ones each pattern
+# drops.
+#
+# early_career and the job-type presets are the patterns the first profile to
+# use this workflow ran from 2026-08 on, tuned against its digest verdicts. mid_career, senior, and
+# leadership are written to the same conventions but have no verdicts behind
+# them yet -- preview them against your own metros.
+
+version: 1
+
+# ------------------------------------------------------------------ seniority
+
+early_career:
+  description: About 0-4 years. Drops senior, lead, staff and principal, director and above.
+  patterns:
+    # `chief` must not swallow "Chief of Staff", which early-stage roles use.
+    - '\b(senior\s+)?(director|vp|vice\s+president|head\s+of|c[ted]o|president)\b'
+    - '\bchief\b(?!\s+of\s+staff\b)'
+    # Allow words between the seniority marker and the noun, so this catches
+    # "Staff Product Security Engineer", not just "Staff Engineer".
+    - '\b(principal|staff|distinguished|fellow)\s+([\w&,-]+\s+){0,3}(engineer|scientist|architect|manager)\b'
+    # No trailing \s -- utilities write it last ("Project Engineer, Senior").
+    - '\b(senior|sr\.?)\b'
+    - '\blead\s+([\w&,-]+\s+){0,3}(engineer|scientist|architect|manager|analyst|technician)\b'
+    - '\b(\d{2}\+?\s*years)\b'
+    - '\bmanager,?\s+(director|senior\s+director)\b'
+
+mid_career:
+  description: About 4-10 years. Keeps senior, staff, and lead. Drops principal, director and above, and entry-level titles.
+  patterns:
+    - '\b(senior\s+)?(director|vp|vice\s+president|head\s+of|c[ted]o|president)\b'
+    - '\bchief\b(?!\s+of\s+staff\b)'
+    - '\b(principal|distinguished|fellow)\s+([\w&,-]+\s+){0,3}(engineer|scientist|architect|manager)\b'
+    - '\b(junior|jr\.?|entry[\s-]level|new\s+grad(uate)?)\b'
+
+senior:
+  description: About 10+ years. Keeps senior, staff, principal, lead, manager, director, and head of. Drops VP and above and entry-level titles.
+  patterns:
+    - '\b(vp|vice\s+president|c[ted]o|president)\b'
+    - '\bchief\b(?!\s+of\s+staff\b)'
+    - '\b(junior|jr\.?|entry[\s-]level|new\s+grad(uate)?)\b'
+    - '\b(engineer|analyst|scientist|specialist|developer|designer|consultant)\s+(i|ii|1|2)\b'
+
+leadership:
+  description: Director and above. Drops entry-level and early-career numbered titles.
+  patterns:
+    - '\b(junior|jr\.?|entry[\s-]level|new\s+grad(uate)?)\b'
+    - '\b(engineer|analyst|scientist|specialist|developer|designer|consultant|associate)\s+(i|ii|iii|1|2|3)\b'
+
+# ------------------------------------------------------------------ job types
+
+no_internships:
+  description: Internships, co-ops, apprenticeships, rotations.
+  patterns:
+    - '\b(intern|internship|co[\s-]?op|apprentice|new\s+grad\s+rotation)\b'
+
+no_supervisory:
+  description: Crew supervision and shift or plant management.
+  patterns:
+    # Federal postings use "Supervisory" as a title prefix.
+    - '\b(supervisory|supervisor)\b'
+    - '\b(shift|production|plant)\s+(supervisor|manager|lead)\b'
+
+no_hourly:
+  description: Technician, operator, student, part-time, and temporary roles.
+  patterns:
+    - '\b(technician|operator|student\s+worker|part[\s-]?time|temp(orary)?)\b'
+
+no_sales:
+  description: Quota-carrying sales and sales development.
+  patterns:
+    - '\b(sales|account\s+executive|business\s+development\s+rep|sdr|bdr|quota)\b'
+
+no_recruiting_hr:
+  description: Recruiting, talent, HR, and people operations.
+  patterns:
+    - '\b(recruiter|talent|hr\b|people\s+ops)\b'
+
+no_marketing:
+  description: Marketing roles.
+  patterns:
+    - '\bmarketing\b'
+
+no_legal:
+  description: Paralegal and counsel roles.
+  patterns:
+    - '\b(paralegal|counsel)\b'

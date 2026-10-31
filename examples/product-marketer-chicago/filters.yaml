@@ -1,0 +1,65 @@
+# Where to look, how much, and which sources, for the fictional product-marketer
+# example. Stage 1 of a scan applies all of this mechanically before anything
+# is scored.
+
+version: 1
+
+# USAJOBS is off: federal hiring has almost no product marketing. The scraped
+# boards are off, as they start for everyone -- only the user turns one on.
+sources:
+  boards: true
+  adzuna: true
+  usajobs: false
+  indeed: false
+  linkedin: false
+  glassdoor: false
+  ziprecruiter: false
+
+max_age_days: 14
+
+comp:
+  floor_usd: 165000
+  min_plausible_hourly: 40
+
+# What a scan costs to score is roughly candidates times characters read. These
+# keep a first scan small; raise them once the digests look right.
+max_candidates: 150
+max_description_chars: 3000
+
+# Copied whole from presets/metros.yaml by /setup.
+metros:
+  chicago:
+    penalty: 0
+    search_as: Chicago, IL
+    states: [IL]
+    cities:
+      - chicago
+      - evanston
+      - naperville
+      - schaumburg
+      - oak brook
+      - skokie
+      - aurora
+      - elgin
+      - lemont
+      - batavia
+    regions:
+      - chicagoland
+
+remote:
+  mode: include
+  penalty: -2
+  # On: remote roles are a real option here, and most are posted nationwide
+  # rather than near Chicago. Adds one query per search term per aggregator.
+  search_nationwide: true
+
+experience:
+  years: 11
+  hard_max_years: 16
+
+blocklist_companies: []
+
+blocklist_staffing:
+  - staffing
+  - recruiting
+  - talent group

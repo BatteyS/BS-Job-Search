@@ -1,0 +1,38 @@
+% Cover letter template for scripts/build_letter.py. No content lives here: the
+% letter comes from the letter file the cover-letter skill writes, the header from
+% content/contact.local.md. Fonts and header match the resume template, so the
+% two read as a set. Placeholders in double percent signs are filled at build time.
+
+\documentclass[11pt, letterpaper]{article}
+
+\usepackage[top=%%MARGIN%%, bottom=%%MARGIN%%, left=%%MARGIN%%, right=%%MARGIN%%]{geometry}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{newtxtext}
+\usepackage{hyperref}
+
+\hypersetup{colorlinks=true, urlcolor=black, linkcolor=black}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{%%PARSKIP%%}
+
+\begin{document}\pagestyle{empty}
+
+\begin{center}
+  \textbf{\LARGE %%NAME%%} \\[2pt]
+  %%CONTACT%%
+\end{center}
+\vspace{%%PARSKIP%%}
+
+%%DATE%%
+
+%%RECIPIENT%%
+
+%%GREETING%%
+
+%%BODY%%
+
+%%CLOSING%% \\[%%SIGNATURE_GAP%%]
+%%NAME%%
+\end{document}

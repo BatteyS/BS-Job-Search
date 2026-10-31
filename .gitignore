@@ -1,0 +1,61 @@
+# Personal contact details -- the ONLY file holding them, so the repo can be
+# shared or made public without a scrub. Not synced: recreate it once per
+# machine from content/contact.example.md.
+content/contact.local.md
+
+# Adzuna API credentials -- free tier, but still secrets.
+sources/adzuna.local.yaml
+sources/usajobs.local.yaml
+
+# Pre-migration resumes, superseded by content/master.md. Kept on disk for
+# reference but out of the repo: they carry contact details in their headers,
+# and they contain the contradictory phrasings that motivated the move to a
+# single source of truth.
+Resume/LaTeX/chronological.tex
+Resume/LaTeX/split.tex
+Resume/LaTeX/research.tex
+Resume/LaTeX/split_scada.tex
+
+# Local scan state. Per-machine by design -- tracking it would conflict on
+# every pull for no benefit.
+data/last-run.json
+
+# LaTeX build artifacts -- regenerated on every build
+Resume/build/
+*.aux
+*.log
+*.out
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+
+# Generated resumes. The CONTENT lives in content/master.md, which is tracked;
+# these are outputs and would otherwise churn the diff on every build.
+Resume/LaTeX/editing_*.tex
+Resume/LaTeX/cv_generated.tex
+Resume/pdf/
+
+# Scan state. seen.sqlite is a local cache -- losing it only re-surfaces old
+# postings once. The WAL/SHM files are never meaningful to track.
+data/*.sqlite
+data/*.sqlite-wal
+data/*.sqlite-shm
+data/candidates-*.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+venv/
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Application materials: transcripts, offer letters, and prior employment
+# records are personal documents, not project source. Tracked folders would
+# also make this repo unsafe to ever push anywhere.
+Applications/
+Previous Employment Records/

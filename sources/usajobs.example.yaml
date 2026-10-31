@@ -1,0 +1,16 @@
+# USAJOBS API credentials. Free, but you must register:
+#   https://developer.usajobs.gov/APIRequest/
+#
+# Copy this file to sources/usajobs.local.yaml and fill in the values.
+# The .local file is gitignored -- credentials never enter the repo.
+# USAJOBS_EMAIL / USAJOBS_API_KEY environment variables work too and win.
+#
+# `email` must be the address you registered the key under. USAJOBS sends it as
+# the User-Agent and rejects the request if it does not match the key.
+
+email: "you@example.com"
+api_key: "your-api-key"
+
+# Which agencies count as in scope is a preference, not a secret, so it lives in
+# profile/filters.yaml as `usajobs_agencies`. An `agencies:` list left here from
+# before 2026-10-29 is still read when filters.yaml names none.

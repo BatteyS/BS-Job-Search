@@ -1,0 +1,88 @@
+# Where to look, how much, and which sources, for the fictional nurse example.
+# Stage 1 of a scan applies all of this mechanically before anything is scored.
+
+version: 1
+
+# Which sources a scan reads. The scraped boards (indeed, linkedin, glassdoor,
+# ziprecruiter) are off: each one's terms prohibit scraping, so only the user
+# turns one on, knowing that. See README.md.
+sources:
+  boards: true          # company job boards listed in sources/companies.yaml
+  adzuna: true          # free API key in sources/adzuna.local.yaml
+  usajobs: true         # free API key; reaches the VA's Sacramento medical center
+  indeed: false
+  linkedin: false
+  glassdoor: false
+  ziprecruiter: false
+
+max_age_days: 14
+
+comp:
+  # Drop only when a disclosed maximum is below this. Most postings disclose
+  # nothing and pass. Nursing pay is usually hourly; hourly figures count at
+  # 2,080 hours a year.
+  floor_usd: 110000
+  min_plausible_hourly: 25
+
+# What a scan costs to score is roughly candidates times characters read. These
+# keep a first scan small; raise them once the digests look right.
+max_candidates: 150
+max_description_chars: 3000
+
+# Copied whole from presets/metros.yaml by /setup. Edit freely: a city added
+# here is matched on the next scan.
+metros:
+  sacramento:
+    penalty: 0
+    search_as: Sacramento, CA
+    states: [CA]
+    cities:
+      - sacramento
+      - west sacramento
+      - roseville
+      - rancho cordova
+      - folsom
+      - elk grove
+      - davis
+      - citrus heights
+      - carmichael
+      - el dorado hills
+      - rocklin
+      - natomas
+      - mcclellan park
+      - north highlands
+      - granite bay
+      - placerville
+      - cameron park
+      - shingle springs
+
+remote:
+  # include: keep remote postings beside Sacramento ones, with this penalty.
+  mode: include
+  penalty: -3
+  # Off: one nationwide remote query per search term, on every aggregator,
+  # would more than double a scan's queries.
+  search_nationwide: false
+
+experience:
+  # Years of relevant experience. Orders what the candidate cap drops; filters
+  # nothing.
+  years: 6
+  # Drop a posting whose lowest stated minimum is at or above this.
+  hard_max_years: 10
+
+# A USAJOBS posting is kept only when its agency name contains one of these.
+usajobs_agencies:
+  - veterans affairs
+  - defense health
+
+blocklist_companies: []
+
+# Staffing and travel-nurse agencies repost hospitals' roles; the posting says
+# nothing about who you would work for. Matched as part of the company name;
+# add an agency's name here when one keeps turning up.
+blocklist_staffing:
+  - staffing
+  - recruiting
+  - travel nurse
+  - travel nursing

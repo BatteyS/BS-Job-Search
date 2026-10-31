@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python scripts/fetch_jobs.py:*)",
+      "Bash(python scripts/resolve_ats.py:*)",
+      "Bash(python scripts/detect_ats.py:*)",
+      "Bash(python scripts/probe_workday.py:*)",
+      "Bash(python scripts/build_resume.py:*)",
+      "Bash(python scripts/build_letter.py:*)",
+      "Bash(python scripts/digest_applies.py:*)",
+      "Bash(python scripts/fetch_posting.py:*)",
+      "Bash(python scripts/ats_check.py:*)",
+      "Bash(python scripts/doctor.py:*)",
+      "Bash(python scripts/extract_text.py:*)",
+      "Bash(python scripts/try_titles.py:*)",
+      "Bash(uv run python scripts/fetch_jobs.py:*)",
+      "Bash(uv run python scripts/resolve_ats.py:*)",
+      "Bash(uv run python scripts/detect_ats.py:*)",
+      "Bash(uv run python scripts/probe_workday.py:*)",
+      "Bash(uv run python scripts/build_resume.py:*)",
+      "Bash(uv run python scripts/build_letter.py:*)",
+      "Bash(uv run python scripts/digest_applies.py:*)",
+      "Bash(uv run python scripts/fetch_posting.py:*)",
+      "Bash(uv run python scripts/ats_check.py:*)",
+      "Bash(uv run python scripts/doctor.py:*)",
+      "Bash(uv run python scripts/extract_text.py:*)",
+      "Bash(uv run python scripts/try_titles.py:*)",
+      "Edit(/digests/**)",
+      "Edit(/data/**)",
+      "Edit(/profile/feedback.md)"
+    ],
+    "ask": [
+      "Edit(/profile/profile.md)",
+      "Edit(/content/master.md)",
+      "Edit(/content/story.md)"
+    ]
+  }
+}

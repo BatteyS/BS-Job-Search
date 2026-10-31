@@ -1,0 +1,43 @@
+# Lets uv (astral.sh/uv) set up Python for this workflow, so nobody installs
+# Python or manages a virtualenv by hand:
+#
+#     uv sync                      # once; add --extra pdf and/or --extra scraped
+#     uv run python scripts/doctor.py
+#
+# Name every extra you want on each `uv sync`: a sync uninstalls any extra it is
+# not given. `uv run` keeps whatever is installed.
+#
+# uv fetches the Python in .python-version if the machine lacks it. That is 3.12
+# because the scraped extra's JobSpy pins numpy 1.26.3, which has no wheels for a
+# newer Python. uv.lock pins every other package, so each copy installs the same
+# versions. This is not a package -- the scripts run from scripts/ -- so nothing
+# gets built or installed beyond the dependencies.
+
+[project]
+name = "bs-job-search"
+version = "0.1.0"
+description = "Job scan, tailored resumes, and cover letters, run from Claude Code"
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml>=6",
+    "requests>=2.28",
+]
+
+[project.optional-dependencies]
+# The scraped job boards (Indeed, LinkedIn, Glassdoor, ZipRecruiter) -- opt-in,
+# like the boards themselves. Pinned: older releases have a different
+# scrape_jobs(), and the README explains why a plain pip install can pick one.
+scraped = ["python-jobspy==1.1.82"]
+# Reading a PDF resume with scripts/extract_text.py.
+pdf = ["pypdf>=4"]
+
+# For running the tests: `uv run --group test pytest`. A group rather than an
+# extra, so nobody's install pulls in pytest by accident.
+[dependency-groups]
+test = ["pytest>=8"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
