@@ -13,7 +13,8 @@ neither is a setting:
     reason LinkedIn was excluded.
   * Each board is queried at a fixed, polite pace (SITES below). A board that
     starts refusing requests gets one cool-off and is then dropped for the rest
-    of the run, never retried harder. There is no proxy support, on purpose.
+    of the run, never retried harder. One whose queries keep failing for any
+    other reason is dropped too. There is no proxy support, on purpose.
 
 The settings are the same for every user, so a scan behaves the same for
 everyone out of the box.
@@ -101,13 +102,16 @@ SITES = {
     "linkedin": {"jobspy": "linkedin", "label": "LinkedIn", "results": 25,
                  "serial": True, "pause": 5.0, "max_queries": 40,
                  "fetch_description": True},
-    # Glassdoor rate-limits above about 2 requests a second.
-    "glassdoor": {"jobspy": "glassdoor", "label": "Glassdoor", "results": 30,
-                  "serial": True, "pause": 2.0, "max_queries": 60},
-    # US and Canada only, and it reads only the location.
+    # Glassdoor rate-limits above about 2 requests a second. Without
+    # fetch_description, JobSpy 1.4 returns its postings with no text at all,
+    # and with it every row costs a request, so rows are kept to LinkedIn's 25.
+    "glassdoor": {"jobspy": "glassdoor", "label": "Glassdoor", "results": 25,
+                  "serial": True, "pause": 2.0, "max_queries": 60,
+                  "fetch_description": True},
+    # US and Canada only, and it reads only the location. Rows as Glassdoor.
     "ziprecruiter": {"jobspy": "zip_recruiter", "label": "ZipRecruiter",
-                     "results": 50, "serial": True, "pause": 2.0,
-                     "max_queries": 60},
+                     "results": 25, "serial": True, "pause": 2.0,
+                     "max_queries": 60, "fetch_description": True},
 }
 
 # The `ats` values postings from these boards carry.
@@ -118,33 +122,46 @@ SCRAPED_ATS = frozenset(s["jobspy"] for s in SITES.values())
 # refusal drops the board for the rest of the run: the next scan is the retry.
 COOL_OFF_SECONDS = 65
 
+# An error that is not a refusal -- a rejected query, a location the board
+# cannot parse -- does not clear with a wait. On 2026-11-02 Glassdoor answered
+# all six Bay Area queries with HTTP 400, "location not parsed", and the run
+# asked six times. Two failed queries in a row now drop a board for the run.
+ERRORS_BEFORE_STOP = 2
+
 # Miles. Matches adzuna_source's `distance: 40`.
 RADIUS_MILES = 40
 
 HOURLY_HOURS_PER_YEAR = 2080
 
 
-class _Refusals(logging.Handler):
-    """Counts JobSpy log errors that say a board refused a request.
+class _Errors(logging.Handler):
+    """Counts the errors JobSpy logs for one board, and which of them say the
+    board refused a request.
 
-    JobSpy does not raise when a board blocks it; it logs an error and returns
-    what it has, so a refusal shows only in its log. Best effort: JobSpy names
-    its loggers "JobSpy:<Board>", and if that changes this sees nothing and only
-    raised errors count as refusals.
+    JobSpy does not raise when a board blocks it or rejects a query; it logs an
+    error and returns what it has, so a failure shows only in its log. Best
+    effort: JobSpy names its loggers "JobSpy:<Board>" (1.1) or after the
+    scraper's module, "jobspy.<board>" (1.4). If that changes again this sees
+    nothing, and only raised errors count.
     """
 
-    PATTERN = re.compile(r"\b(429|403|blocked|rate.?limit\w*|too many requests)\b", re.I)
+    REFUSAL = re.compile(r"\b(429|403|blocked|rate.?limit\w*|too many requests)\b", re.I)
 
     def __init__(self) -> None:
         super().__init__(level=logging.ERROR)
-        self.count = 0
+        self.count = 0          # every error
+        self.refusals = 0       # the errors that say the board refused
+        self.last = ""
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            if self.PATTERN.search(record.getMessage()):
-                self.count += 1
+            msg = record.getMessage()
         except Exception:                               # noqa: BLE001
-            pass
+            return
+        self.count += 1
+        self.last = msg
+        if self.REFUSAL.search(msg):
+            self.refusals += 1
 
 
 def _s(v) -> str:
@@ -230,20 +247,27 @@ def _board(key: str, scrape_jobs, tasks, hours_old: int, results: int,
     site, label = cfg["jobspy"], cfg["label"]
     extra = {}
     if cfg.get("fetch_description"):
-        # JobSpy renamed this; the old name still works until its 2.0.
-        flag = ("fetch_description" if _accepts(scrape_jobs, "fetch_description")
-                else "linkedin_fetch_description")
-        extra[flag] = True
+        # JobSpy 1.4 calls this fetch_description and applies it to every board;
+        # older releases knew it only as linkedin_fetch_description.
+        if _accepts(scrape_jobs, "fetch_description"):
+            extra["fetch_description"] = True
+        elif key == "linkedin":
+            extra["linkedin_fetch_description"] = True
     planned = len(tasks)
     cap = cfg.get("max_queries")
     if cap and planned > cap:
         tasks = tasks[:cap]
 
-    refusals = _Refusals()
-    logger = logging.getLogger(f"JobSpy:{label}")
-    logger.addHandler(refusals)
+    errors = _Errors()
+    # JobSpy 1.1 logs as "JobSpy:LinkedIn", 1.4 under its scraper's module,
+    # "jobspy.linkedin". Listening to both keeps either release's errors visible.
+    loggers = [logging.getLogger(f"JobSpy:{label}"),
+               logging.getLogger(f"jobspy.{site.replace('_', '')}")]
+    for logger in loggers:
+        logger.addHandler(errors)
 
-    def attempt(task) -> tuple[list[Job], bool]:
+    def attempt(task) -> tuple[list[Job], bool, bool]:
+        """(postings, whether the board refused, whether it logged any error)."""
         term, mkey, place = task
         if mkey == scan_config.NATIONWIDE:
             # Remote work has no place to search around; ask for remote
@@ -251,7 +275,7 @@ def _board(key: str, scrape_jobs, tasks, hours_old: int, results: int,
             where, hint = {"is_remote": True}, ""
         else:
             where, hint = {"location": place, "distance": RADIUS_MILES}, place
-        before = refusals.count
+        before, refused_before = errors.count, errors.refusals
         try:
             df = scrape_jobs(site_name=[site], search_term=term,
                              results_wanted=results, hours_old=hours_old,
@@ -261,45 +285,60 @@ def _board(key: str, scrape_jobs, tasks, hours_old: int, results: int,
             if verbose:
                 print(f"  ! {label}/{mkey}/{term}: {type(e).__name__}: {e}",
                       file=sys.stderr)
-            return [], True
+            return [], True, True
         rows = [] if df is None or df.empty else [
             j for j in (to_job(r, site, hint) for _, r in df.iterrows()) if j]
         if verbose:
             print(f"  {label:12} {mkey:12} {term:34} {len(rows):4}", file=sys.stderr)
-        return rows, refusals.count > before
+        return rows, errors.refusals > refused_before, errors.count > before
 
     out: list[Job] = []
-    done, stopped = 0, False
+    done, failed, stopped = 0, 0, ""
+    started = time.time()
     try:
         if not cfg["serial"]:
             with ThreadPoolExecutor(max_workers=workers) as pool:
-                for rows, _ in pool.map(attempt, tasks):
+                for rows, _, errored in pool.map(attempt, tasks):
                     out += rows
                     done += 1
+                    failed += errored and not rows
         else:
-            cooled = False
+            cooled, in_a_row = False, 0
             for i, task in enumerate(tasks):
                 if i:
                     time.sleep(cfg["pause"])
-                rows, refused = attempt(task)
+                rows, refused, errored = attempt(task)
                 out += rows
                 if refused and not cooled:
                     cooled = True
                     time.sleep(COOL_OFF_SECONDS)
-                    rows, refused = attempt(task)
+                    rows, refused, errored = attempt(task)
                     out += rows
                 if refused:
-                    stopped = True
+                    stopped = "refused"
                     break
                 done += 1
+                failed += errored and not rows
+                in_a_row = in_a_row + 1 if errored and not rows else 0
+                if in_a_row >= ERRORS_BEFORE_STOP:
+                    stopped = "errors"
+                    break
     finally:
-        logger.removeHandler(refusals)
+        for logger in loggers:
+            logger.removeHandler(errors)
 
-    status = f"{label}: {done} of {planned} queries"
+    # Timed, because the slowest board sets the scan's pace and nothing else
+    # would show which one that is.
+    status = f"{label}: {done} of {planned} queries in {time.time() - started:.0f}s"
     if cap and planned > cap:
         status += f" (capped at {cap} per run)"
-    if stopped:
+    if stopped == "refused":
         status += f"; stopped because {label} refused requests -- the next scan retries"
+    elif stopped == "errors":
+        status += (f"; stopped after {ERRORS_BEFORE_STOP} failed queries in a row "
+                   f"({errors.last}) -- the next scan retries")
+    elif failed:
+        status += f"; {failed} failed ({errors.last})"
     return out, status
 
 

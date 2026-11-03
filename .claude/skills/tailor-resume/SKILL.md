@@ -47,6 +47,13 @@ worth having for interview prep. Exit codes:
 | 3 | closed, expired, or 404 | **stop.** Report it and skip the role |
 | 4 | network or HTTP failure | retry once, then ask |
 
+**Before a browser or a paste, try the employer's own board.** A LinkedIn or aggregator
+link that fails or comes back thin is usually also on the employer's Greenhouse, Lever,
+Ashby, or Workday board: `detect_ats.py` finds the board, and `probe_workday.py` finds a
+Workday one. On 2026-11-02 LinkedIn refused Redwood's posting, and Redwood's Greenhouse
+board had it. Check the location there as well, since the listing and the board can
+disagree: one LinkedIn listing said Walnut Creek, and the employer's board said remote.
+
 Then actually read it. What the first qualification demands, what the responsibilities
 emphasize, and the vocabulary the employer uses for the work.
 
@@ -273,9 +280,12 @@ Everything above optimizes for a 30-second human scan. At a large employer a par
 screens first, which is a different test:
 
 ```bash
-python scripts/ats_check.py --jd "<posting.txt>" --resume Resume/LaTeX/editing_<variant>.tex \
-    --company "<Company>"
+python scripts/ats_check.py --jd "Applications/<Company>/<Job Title> - posting.txt" \
+    --resume "Applications/<Company>/<Job Title>.tex" --company "<Company>"
 ```
+
+Check the `.tex` filed with the application. `Resume/LaTeX/editing_<variant>.tex` holds
+only the last build, which in a batch is some other role's resume.
 
 Missing keywords split two ways, and the split matters more than the percentage. If the
 evidence is in `master.md` and you didn't pick it, that's a tailoring miss — fix the

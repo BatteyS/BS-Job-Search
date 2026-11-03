@@ -30,7 +30,8 @@ the user approves it:
   `cover letter`; added 2026-11-02) asks for what a letter needs that these files lack.
   It then adds the answers to `story.md`, and any new resume fact to `master.md`. It shows
   the exact text first and writes only what the user approves. It adds without rewriting
-  or removing what is there, and it never touches `profile.md`.
+  or removing what is there, except to end a role the user says has ended, and it never
+  touches `profile.md`.
 
 ## Things already decided — don't silently reverse them
 

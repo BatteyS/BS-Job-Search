@@ -269,6 +269,9 @@ def plain_text(letter: dict, front: dict) -> str:
 
 
 def main() -> int:
+    # Piped, stdout is block-buffered and stderr is not, so NOT BUILT would
+    # land above the paragraph report it ends.
+    sys.stdout.reconfigure(line_buffering=True)
     ap = argparse.ArgumentParser()
     ap.add_argument("--letter", required=True, metavar="JSON", help="the letter file")
     ap.add_argument("--company", help="file under Applications/<company>/")

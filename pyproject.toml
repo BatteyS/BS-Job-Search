@@ -7,11 +7,10 @@
 # Name every extra you want on each `uv sync`: a sync uninstalls any extra it is
 # not given. `uv run` keeps whatever is installed.
 #
-# uv fetches the Python in .python-version if the machine lacks it. That is 3.12
-# because the scraped extra's JobSpy pins numpy 1.26.3, which has no wheels for a
-# newer Python. uv.lock pins every other package, so each copy installs the same
-# versions. This is not a package -- the scripts run from scripts/ -- so nothing
-# gets built or installed beyond the dependencies.
+# uv fetches the Python in .python-version if the machine lacks it. That is 3.12,
+# which every locked package has wheels for. uv.lock pins every package, so each
+# copy installs the same versions. This is not a package -- the scripts run from
+# scripts/ -- so nothing gets built or installed beyond the dependencies.
 
 [project]
 name = "bs-job-search"
@@ -26,8 +25,8 @@ dependencies = [
 [project.optional-dependencies]
 # The scraped job boards (Indeed, LinkedIn, Glassdoor, ZipRecruiter) -- opt-in,
 # like the boards themselves. Pinned: older releases have a different
-# scrape_jobs(), and the README explains why a plain pip install can pick one.
-scraped = ["python-jobspy==1.1.82"]
+# scrape_jobs(), and 1.1 returned nothing from Glassdoor or ZipRecruiter.
+scraped = ["python-jobspy==1.4.1"]
 # Reading a PDF resume with scripts/extract_text.py.
 pdf = ["pypdf>=4"]
 

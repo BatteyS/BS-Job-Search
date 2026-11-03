@@ -75,6 +75,7 @@ class Job:
     duplicate_count: int = 1   # identical reqs collapsed into this one
     yoe_min: int | None = None  # lowest stated years-of-experience minimum
     yoe_max: int | None = None
+    recruiter: bool = False    # a recruiter's posting for an employer it does not name
 
 
 # ----------------------------------------------------------------- utilities

@@ -336,6 +336,27 @@ def parse_years_required(text: str) -> tuple[int | None, int | None]:
     return (min(vals), max(vals)) if vals else (None, None)
 
 
+# A recruiter posting for an employer it does not name. blocklist_staffing
+# matches company names, and a specialist recruiter is not on it: on 2026-11-02
+# Climate People reached the digest as if it were the employer, with "We're
+# partnering with a well-funded direct air capture (DAC) and flow battery
+# startup". Flagged, not dropped -- the role behind it can be real and worth it.
+# Recruiters say so in their opening lines; an employer's own "we're working
+# with a utility" usually comes later, so only the opening is read.
+RECRUITER = re.compile(
+    r"\b(?:on behalf of (?:our|a|an) client|"
+    r"our client(?:'s|’s)? (?:is|has|seeks|needs|wants)\b|"
+    r"we(?:'|’)?re (?:partnering|working) with (?:a|an|one)\b|"
+    r"we are (?:partnering|working) with (?:a|an|one)\b|"
+    r"confidential (?:client|company|employer))", re.I)
+RECRUITER_OPENING_CHARS = 600
+
+
+def posted_by_recruiter(text: str) -> bool:
+    """Whether a posting reads as a recruiter's, for an employer it does not name."""
+    return bool(text and RECRUITER.search(text[:RECRUITER_OPENING_CHARS]))
+
+
 # ------------------------------------------------------------------ clusters
 
 
@@ -527,8 +548,7 @@ def chosen_sources(filt: dict, args) -> tuple[set[str], str]:
     """Which sources run: --sources if given, else filters.yaml `sources`.
 
     A profile without a `sources` block reads the company boards only, which
-    is what a run without flags always did. --adzuna, --usajobs and --jobspy
-    (Indeed) still add to whatever was chosen, so older commands work as before.
+    is what a run without flags always did.
     """
     if args.sources:
         chosen = {s.strip() for s in args.sources.split(",") if s.strip()}
@@ -547,8 +567,6 @@ def chosen_sources(filt: dict, args) -> tuple[set[str], str]:
     if unknown:
         raise SystemExit(f"unknown source(s) {', '.join(unknown)}; "
                          f"known: {', '.join(SOURCES)}")
-    chosen |= {s for s, flag in (("adzuna", args.adzuna), ("usajobs", args.usajobs),
-                                  ("indeed", args.jobspy)) if flag}
     return chosen, origin
 
 
@@ -616,9 +634,15 @@ CREATE INDEX IF NOT EXISTS idx_jobs_seen ON jobs(last_seen);
 CREATE TABLE IF NOT EXISTS boards (
   ats TEXT, token TEXT, company TEXT, last_run TEXT, last_ok TEXT,
   consecutive_failures INT DEFAULT 0, last_count INT, list_hash TEXT,
+  consecutive_empty INT DEFAULT 0,
   PRIMARY KEY (ats, token)
 );
 """
+
+# A board that reads fine but lists nothing, run after run, has usually moved:
+# on 2026-11-02 Amplitude, Anyscale, ClickHouse, Confluent and four other
+# employers with open roles read empty, and only unreadable boards were flagged.
+EMPTY_RUNS_BEFORE_WARNING = 3
 
 
 def open_db(path: str) -> sqlite3.Connection:
@@ -627,6 +651,9 @@ def open_db(path: str) -> sqlite3.Connection:
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA synchronous=NORMAL")
     con.executescript(SCHEMA)
+    # Databases made before consecutive_empty existed.
+    if "consecutive_empty" not in {r[1] for r in con.execute("PRAGMA table_info(boards)")}:
+        con.execute("ALTER TABLE boards ADD COLUMN consecutive_empty INT DEFAULT 0")
     return con
 
 
@@ -652,6 +679,7 @@ class Stats:
     usajobs_raw: int = 0
     jobspy_raw: int = 0
     cut_staffing: int = 0
+    cut_blocked: int = 0
     cut_domain: int = 0
     cut_experience: int = 0
     enriched: int = 0
@@ -699,14 +727,8 @@ def main() -> int:
     ap.add_argument("--sources",
                     help="comma-separated sources for this run, overriding filters.yaml "
                          f"`sources`: {', '.join(SOURCES)}")
-    ap.add_argument("--usajobs", action="store_true",
-                    help="also query USAJOBS (agencies in usajobs_agencies)")
-    ap.add_argument("--jobspy", action="store_true",
-                    help="also scrape Indeed; same as adding indeed to --sources")
     ap.add_argument("--jobspy-results", type=int, default=400,
                     help="Indeed rows per (search term, metro) query")
-    ap.add_argument("--adzuna", action="store_true",
-                    help="also query Adzuna (reaches employers whose ATS we can't read)")
     ap.add_argument("--ignore-seen", action="store_true",
                     help="do not skip previously-seen jobs (for tuning filters)")
     ap.add_argument("--dry-run", action="store_true", help="do not write to the DB")
@@ -814,6 +836,48 @@ def main() -> int:
     board_rows: list[tuple] = []
     now = iso(datetime.now(timezone.utc))
 
+    # ---- the other sources start now, alongside the boards ------------------
+    # Each is an independent host with its own pace, and none needs another's
+    # results. On 2026-11-02 the boards took 72 s and only then did the scraped
+    # boards start, which took minutes more. Their postings are still filtered
+    # one source at a time, in a fixed order, once the boards are done.
+    def timed(fetch, *a, **kw):
+        started = time.time()
+        return fetch(*a, **kw), time.time() - started
+
+    def fetch_adzuna():
+        import adzuna_source
+        return adzuna_source.search(active, locations=locations, max_days=max_age,
+                                    clusters_cfg=cl_cfg)
+
+    background = ThreadPoolExecutor(max_workers=3)
+    pending: dict[str, object] = {}
+    board_status: dict = {}
+    if "adzuna" in sources:
+        unasked("adzuna", "search_terms")
+        pending["adzuna"] = background.submit(timed, fetch_adzuna)
+    if scraped:
+        for key in scraped:
+            label = jobspy_source.SITES[key]["label"]
+            log(f"WARNING: scraping {label} because `sources` turns it on. Its terms "
+                "prohibit scraping; this runs at your own risk, logged out.")
+        unasked("scraped boards", "search_terms")
+        pending["scraped boards"] = background.submit(
+            timed, jobspy_source.search, active, locations=locations, max_days=max_age,
+            results_wanted=args.jobspy_results, workers=args.workers, sites=scraped,
+            verbose=args.verbose, clusters_cfg=cl_cfg, status=board_status)
+    if "usajobs" in sources:
+        unasked("usajobs", "usajobs_terms")
+        try:
+            import usajobs_source
+            agencies, agencies_from = usajobs_source.agency_scope(filt)
+            log(f"usajobs agencies ({agencies_from}): {', '.join(agencies) or 'all'}")
+            pending["usajobs"] = background.submit(
+                timed, usajobs_source.search, active, locations=locations,
+                max_days=max_age, clusters_cfg=cl_cfg, agencies=agencies)
+        except SystemExit as e:
+            log(f"usajobs skipped: {e}")
+
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futs = {pool.submit(list_board, c): c for c in companies}
         done = 0
@@ -826,7 +890,7 @@ def main() -> int:
             key = board_key(c)
             if not ok:
                 st.boards_failed += 1
-                board_rows.append((c["ats"], key, c["name"], now, None, 1, 0, None))
+                board_rows.append((c["ats"], key, c["name"], now, None, 1, 0, None, 0))
                 log(f"  ! unreadable: {c['name']} ({c['ats']})", v=args.verbose)
                 continue
             st.boards_ok += 1
@@ -835,7 +899,8 @@ def main() -> int:
             if h and board_hashes.get((c["ats"], key)) == h:
                 st.boards_unchanged += 1
             st.raw += len(jobs)
-            board_rows.append((c["ats"], key, c["name"], now, now, 0, len(jobs), h))
+            board_rows.append((c["ats"], key, c["name"], now, now, 0, len(jobs), h,
+                               0 if jobs else 1))
 
             for j in jobs:
                 if preview:
@@ -886,7 +951,7 @@ def main() -> int:
             # that list held sixteen oil and gas majors, Adzuna was returning
             # them. Applied to every source now.
             if any(b in j.company.lower() for b in blocked):
-                st.cut_staffing += 1
+                st.cut_blocked += 1
                 continue
             if preview:
                 preview.consider(j)
@@ -911,59 +976,35 @@ def main() -> int:
     # Adzuna reaches employers whose ATS we cannot read (iCIMS, Oracle HCM,
     # Taleo, Phenom, Avature) -- where most entry-to-mid energy project
     # engineering actually lives.
-    if "adzuna" in sources:
-        unasked("adzuna", "search_terms")
+    #
+    # The scraped boards reach the same unreadable-ATS half, and return the
+    # whole posting rather than a snippet, so the experience gate -- the filter
+    # feedback.md says decided ten of sixteen skips -- runs at full strength
+    # with no phase C fetch. They are scraped, against their terms, so each
+    # runs only when the profile turns it on, and says so.
+    #
+    # USAJOBS covers the federal agencies named in `usajobs_agencies` in
+    # filters.yaml. It returns the whole posting too. It does NOT reach the
+    # national labs: those are contractor-operated, so their jobs are on the
+    # lab's own board rather than USAJOBS.
+    for name, fut in pending.items():
         try:
-            import adzuna_source
-            az = adzuna_source.search(active, locations=locations, max_days=max_age,
-                                      clusters_cfg=cl_cfg)
-            st.adzuna_raw = len(az)
-            log(f"adzuna: {st.adzuna_raw} raw -> {absorb(az)} survivors")
+            jobs, took = fut.result()
         except SystemExit as e:
-            log(f"adzuna skipped: {e}")
-
-    # The big job boards reach the same unreadable-ATS half as Adzuna, and
-    # Indeed returns the whole posting rather than a snippet, so the experience
-    # gate -- the filter feedback.md says decided ten of sixteen skips -- runs at
-    # full strength with no phase C fetch. They are scraped, against their
-    # terms, so each runs only when the profile turns it on, and says so.
-    if scraped:
-        for key in scraped:
-            label = jobspy_source.SITES[key]["label"]
-            log(f"WARNING: scraping {label} because `sources` turns it on. Its terms "
-                "prohibit scraping; this runs at your own risk, logged out.")
-        unasked("scraped boards", "search_terms")
-        try:
-            board_status: dict = {}
-            js = jobspy_source.search(active, locations=locations, max_days=max_age,
-                                      results_wanted=args.jobspy_results,
-                                      workers=args.workers, sites=scraped,
-                                      verbose=args.verbose, clusters_cfg=cl_cfg,
-                                      status=board_status)
+            log(f"{name} skipped: {e}")
+            continue
+        if name == "scraped boards":
             for line in board_status.values():
                 log(f"  {line}")
-            st.jobspy_raw = len(js)
-            log(f"scraped boards: {st.jobspy_raw} raw -> {absorb(js)} survivors")
-        except SystemExit as e:
-            log(f"scraped boards skipped: {e}")
-
-    # USAJOBS covers the federal agencies named in `usajobs_agencies` in
-    # filters.yaml. It returns the whole posting, so these need no phase C
-    # enrichment. It does NOT reach the national labs: those are
-    # contractor-operated, so their jobs are on the lab's own board rather than
-    # USAJOBS.
-    if "usajobs" in sources:
-        unasked("usajobs", "usajobs_terms")
-        try:
-            import usajobs_source
-            agencies, agencies_from = usajobs_source.agency_scope(filt)
-            log(f"usajobs agencies ({agencies_from}): {', '.join(agencies) or 'all'}")
-            uj = usajobs_source.search(active, locations=locations, max_days=max_age,
-                                       clusters_cfg=cl_cfg, agencies=agencies)
-            st.usajobs_raw = len(uj)
-            log(f"usajobs: {st.usajobs_raw} raw -> {absorb(uj)} survivors")
-        except SystemExit as e:
-            log(f"usajobs skipped: {e}")
+        raw = len(jobs)
+        if name == "adzuna":
+            st.adzuna_raw = raw
+        elif name == "usajobs":
+            st.usajobs_raw = raw
+        else:
+            st.jobspy_raw = raw
+        log(f"{name}: {raw} raw -> {absorb(jobs)} survivors [{took:.1f}s]")
+    background.shutdown()
 
     if preview:
         preview.report()
@@ -971,10 +1012,11 @@ def main() -> int:
 
     need = [j for j in survivors if not j.description]
     if need:
-        log(f"phase B: {len(need)} detail fetches")
+        started = time.time()
         with ThreadPoolExecutor(max_workers=args.workers) as pool:
             list(pool.map(fetch_detail, need))
         st.detail_fetches = len(need)
+        log(f"phase B: {len(need)} detail fetches [{time.time() - started:.1f}s]")
 
     # ---- phase C: enrich thin descriptions --------------------------------
     # The aggregator returns ~539-character snippets, and 224 of its 226
@@ -994,6 +1036,7 @@ def main() -> int:
                 and j.ats not in jobspy_source.SCRAPED_ATS]
         if thin:
             log(f"phase C: enriching {len(thin)} thin descriptions")
+            started = time.time()
             try:
                 import fetch_posting
 
@@ -1013,7 +1056,8 @@ def main() -> int:
                 if dead:
                     survivors = [j for j in survivors if j.uid not in dead]
                     st.cut_dead = len(dead)
-                log(f"phase C: {st.enriched} enriched, {st.cut_dead} already dead")
+                log(f"phase C: {st.enriched} enriched, {st.cut_dead} already dead "
+                    f"[{time.time() - started:.1f}s]")
             except Exception as e:
                 # Never let enrichment sink a scan -- the snippets still work,
                 # they just score worse.
@@ -1049,6 +1093,7 @@ def main() -> int:
         if j.yoe_min is not None and j.yoe_min >= yoe_hard:
             st.cut_experience += 1
             continue
+        j.recruiter = posted_by_recruiter(j.description)
         candidates.append(j)
 
     # Large employers post the same requisition several times under different
@@ -1119,17 +1164,26 @@ def main() -> int:
             "INSERT INTO jobs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(uid) DO UPDATE SET last_seen=excluded.last_seen", rows)
         con.executemany(
-            "INSERT INTO boards VALUES (?,?,?,?,?,?,?,?) "
+            "INSERT INTO boards (ats, token, company, last_run, last_ok, "
+            "consecutive_failures, last_count, list_hash, consecutive_empty) "
+            "VALUES (?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(ats,token) DO UPDATE SET last_run=excluded.last_run, "
             "last_ok=COALESCE(excluded.last_ok, boards.last_ok), "
             "consecutive_failures=CASE WHEN excluded.last_ok IS NULL "
             "  THEN boards.consecutive_failures+1 ELSE 0 END, "
+            "consecutive_empty=CASE WHEN excluded.last_ok IS NULL "
+            "  THEN boards.consecutive_empty "
+            "  WHEN excluded.consecutive_empty = 1 THEN boards.consecutive_empty+1 ELSE 0 END, "
             "last_count=excluded.last_count, list_hash=excluded.list_hash", board_rows)
         con.commit()
 
     stale = con.execute(
         "SELECT company, ats, token, consecutive_failures FROM boards "
         "WHERE consecutive_failures >= 3 ORDER BY consecutive_failures DESC").fetchall()
+    empty = con.execute(
+        "SELECT company, ats, token, consecutive_empty FROM boards "
+        "WHERE consecutive_empty >= ? ORDER BY consecutive_empty DESC",
+        (EMPTY_RUNS_BEFORE_WARNING,)).fetchall()
 
     os.makedirs(args.out_dir, exist_ok=True)
     outpath = os.path.join(args.out_dir,
@@ -1141,21 +1195,37 @@ def main() -> int:
             "stats": asdict(st),
             "stale_boards": [{"company": r[0], "ats": r[1], "token": r[2],
                               "failures": r[3]} for r in stale],
+            "empty_boards": [{"company": r[0], "ats": r[1], "token": r[2],
+                              "empty_runs": r[3]} for r in empty],
             "candidates": [
                 {k: v for k, v in asdict(j).items() if k not in ("description", "detail_path")}
                 | {"description": j.description[:desc_chars]} for j in candidates],
         }, fh, indent=1, ensure_ascii=False)
+    # /job-scan offers the last run's targeting as the default for the next.
+    if not args.dry_run:
+        with open(os.path.join(args.out_dir, "last-run.json"), "w", encoding="utf-8") as fh:
+            json.dump({
+                "ran_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+                "clusters": sorted(active),
+                "metros": [] if remote == "only" else list(in_play),
+                "remote": remote,
+                "sources": [s for s in SOURCES if s in sources],
+            }, fh, indent=1)
 
     log("")
     log(f"raw {st.raw} | seen {st.seen_before} | cut: title {st.cut_title} "
         f"loc {st.cut_location} age {st.cut_age} comp {st.cut_comp} "
-        f"staffing {st.cut_staffing} domain {st.cut_domain} "
+        f"staffing {st.cut_staffing} blocked {st.cut_blocked} domain {st.cut_domain} "
         f"yoe {st.cut_experience} dead {st.cut_dead} "
         f"dup {st.duplicates} | enriched {st.enriched}")
     log(f"CANDIDATES: {st.candidates}" + (f"  (clipped {st.clipped})" if st.clipped else ""))
     if stale:
         log(f"WARNING: {len(stale)} board(s) failing 3+ runs: "
             f"{', '.join(r[0] for r in stale[:6])}")
+    if empty:
+        log(f"WARNING: {len(empty)} board(s) empty {EMPTY_RUNS_BEFORE_WARNING}+ runs in a "
+            f"row, probably moved -- re-check with detect_ats.py: "
+            f"{', '.join(r[0] for r in empty[:8])}")
     log(f"-> {outpath}  [{time.time()-t0:.1f}s total]")
     return 0
 

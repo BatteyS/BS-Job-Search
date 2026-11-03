@@ -32,15 +32,18 @@ early_career:
     - '\b(senior\s+)?(director|vp|vice\s+president|head\s+of|c[ted]o|president)\b'
     - '\bchief\b(?!\s+of\s+staff\b)'
     # Allow words between the seniority marker and the noun, so this catches
-    # "Staff Product Security Engineer", not just "Staff Engineer".
+    # "Staff Product Security Engineer", not just "Staff Engineer". A comma may
+    # follow the marker ("Principal, Hardware Engineer"), and employers write
+    # it last too ("Hardware Engineer, Principal").
     # "Staff" sits low on some ladders: at many engineering consultancies,
     # utilities, and energy developers, "Staff Engineer" is entry level and
     # "Senior Staff Engineer" a few years in. This pattern and `senior` below
     # drop both, so in those fields preview what this preset drops first.
-    - '\b(principal|staff|distinguished|fellow)\s+([\w&,-]+\s+){0,3}(engineer|scientist|architect|manager)\b'
+    - '\b(principal|staff|distinguished|fellow),?\s+([\w&,-]+\s+){0,3}(engineer|scientist|architect|manager)\b'
+    - '\b(engineer|scientist|architect|manager),\s*(principal|staff|distinguished|fellow)\b'
     # No trailing \s -- utilities write it last ("Project Engineer, Senior").
     - '\b(senior|sr\.?)\b'
-    - '\blead\s+([\w&,-]+\s+){0,3}(engineer|scientist|architect|manager|analyst|technician)\b'
+    - '\blead,?\s+([\w&,-]+\s+){0,3}(engineer|scientist|architect|manager|analyst|technician)\b'
     - '\b(\d{2}\+?\s*years)\b'
     - '\bmanager,?\s+(director|senior\s+director)\b'
 
@@ -49,7 +52,8 @@ mid_career:
   patterns:
     - '\b(senior\s+)?(director|vp|vice\s+president|head\s+of|c[ted]o|president)\b'
     - '\bchief\b(?!\s+of\s+staff\b)'
-    - '\b(principal|distinguished|fellow)\s+([\w&,-]+\s+){0,3}(engineer|scientist|architect|manager)\b'
+    - '\b(principal|distinguished|fellow),?\s+([\w&,-]+\s+){0,3}(engineer|scientist|architect|manager)\b'
+    - '\b(engineer|scientist|architect|manager),\s*(principal|distinguished|fellow)\b'
     - '\b(junior|jr\.?|entry[\s-]level|new\s+grad(uate)?)\b'
 
 senior:

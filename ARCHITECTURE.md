@@ -36,7 +36,8 @@ skill follows.
 
 `scan_config.py` plans the aggregator queries: each cluster's `search_terms` in each
 metro's `search_as`, 40 miles around, plus a nationwide remote search where the profile
-asks for one. Every posting that comes back then has to clear each filter in turn:
+asks for one. The sources are fetched side by side, and each reports how long it took.
+Every posting that comes back then has to clear each filter in turn:
 
 1. **Title.** A cluster's `include` patterns must match, and nothing in its `exclude`,
    the global excludes, or the presets may. A posting from an aggregator or a scraped
@@ -56,8 +57,11 @@ asks for one. Every posting that comes back then has to clear each filter in tur
 
 Survivors get their full descriptions. If more remain than `max_candidates`, the cut is
 spread across metros and ordered by how well each can be scored, never by guessed fit.
-The result is `data/candidates-YYYY-MM-DD.json`, and `data/seen.sqlite` remembers what
-was seen so the next scan shows only what is new.
+A posting that reads as a recruiter's, for an employer it does not name, is kept and
+flagged `recruiter`. The result is `data/candidates-YYYY-MM-DD.json`, and
+`data/seen.sqlite` remembers what was seen so the next scan shows only what is new. It
+also tracks each company board, so one that fails, or reads empty, three runs in a row
+is named in the digest's warnings: an empty board has usually moved.
 
 **Stage 2 is the `job-scan` skill.** Claude reads every candidate against the rubric in
 `profile.md`, the corrections in `feedback.md`, and each cluster's notes, subtracts the
@@ -104,8 +108,11 @@ builds any resume, so a fact you add reaches every resume in the batch.
 | `doctor.py` | Checks the machine, the profile, and the keys, and says what to fix. |
 | `extract_text.py` | Pulls the text out of a .docx, PDF, or text resume. |
 | `try_titles.py` | Checks job titles against the clusters, offline. |
+| `digest_applies.py` | Reads a marked digest: the roles to apply to and letters to write, the verdicts as a `feedback.md` section (`--verdicts`), and every apply's posting (`--fetch`). |
+| `fetch_posting.py` | Saves one posting's full text, or reports it dead or too thin to tailor from. |
 | `detect_ats.py` | Finds an employer's job board from its domain. |
 | `probe_workday.py` | Finds a Workday board that a careers page hides behind JavaScript. |
+| `resolve_ats.py` | Rebuilds `sources/companies.yaml` from a list of employer names, skipping the tokens in `known_bad.txt`. |
 | `export_template.py` | Copies the shareable files to a new folder, refusing if any carries personal data. |
 
 The tests run on every push (`.github/workflows/tests.yml`), along with the

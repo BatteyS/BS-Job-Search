@@ -53,7 +53,9 @@ If they would rather not say, the letter opens with the fit between what the pos
 asks for and what they have done, and says nothing about feelings it was not told.
 
 Their answer belongs to this letter alone. Cite it as `user`, and keep it out of
-`story.md`, where another company's letter could pick it up.
+`story.md`, where another company's letter could pick it up. If it points at something
+without naming it ("something I really enjoyed early in college"), ask once what that
+is. The letter cannot name it otherwise, and guessing would be inventing.
 
 ## Step 3b — interview for what the letter still needs
 
@@ -87,8 +89,9 @@ and the next letter finds it there:
 - **Keep out of letters.** Anything they want kept out, by topic, never the details.
 
 Show the exact text for each file and write only what the user approves. Add to these
-files; never rewrite or remove what is already there. Then cite the new passages as
-`story` or `master`.
+files; never rewrite or remove what is already there. The one change allowed is ending a
+role the user says has ended: when a new current role goes in, the old one's "– Present"
+becomes the month they give. Then cite the new passages as `story` or `master`.
 
 ## Step 4 — write the letter file
 

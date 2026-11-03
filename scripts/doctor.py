@@ -93,8 +93,9 @@ def python_fix() -> str:
 def check_python() -> None:
     v = sys.version_info
     shown = f"{v.major}.{v.minor}.{v.micro} at {sys.executable}"
-    if v < (3, 9):
-        report("MISSING", "Python 3.9 or newer", shown, python_fix())
+    if v < (3, 10):
+        # pyproject.toml's requires-python, which uv enforces.
+        report("MISSING", "Python 3.10 or newer", shown, python_fix())
     else:
         report("ok", "Python", shown)
     for mod, pkg in (("yaml", "pyyaml"), ("requests", "requests")):

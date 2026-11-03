@@ -1057,6 +1057,9 @@ def drop_one(plan: Plan) -> str | None:
 
 
 def main() -> int:
+    # Piped, stdout is block-buffered and stderr is not, so NOT FILED landed
+    # above the report it ends, where a skill reading the tail missed it.
+    sys.stdout.reconfigure(line_buffering=True)
     ap = argparse.ArgumentParser()
     ap.add_argument("--manifest", metavar="JSON",
                     help="what to put on the page, in order. See resolve_manifest().")

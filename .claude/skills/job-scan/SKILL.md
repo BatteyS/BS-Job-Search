@@ -10,12 +10,15 @@ Takes a few minutes end to end. Run it whenever you feel like looking.
 
 ## Step 1 — ask what to target
 
-Read `profile/clusters.yaml` for the available clusters. Ask with `AskUserQuestion`,
-`multiSelect: true`, one option per cluster, using each cluster's `label` as the option
-label and a short line from its `rationale` as the description.
+Read `profile/clusters.yaml` for the available clusters. With four or fewer, ask with
+`AskUserQuestion`, `multiSelect: true`, one option per cluster, using each cluster's
+`label` as the option label and a short line from its `rationale` as the description.
+The tool allows only four options to a question, so with more clusters, list them in
+your message instead, each with its id, label, and that line, and ask which to run.
 
-If `data/last-run.json` exists, mention which clusters were used last time — repeating a
-scan with the same targeting is the common case.
+If `data/last-run.json` exists, mention which clusters were used last time, and any
+metros or remote mode it records — repeating a scan with the same targeting is the
+common case.
 
 Ask only this one question unless the user has already said what they want, in which case
 skip straight to Step 2. Do not ask about metros, age windows, or comp — those live in
@@ -37,21 +40,21 @@ has not turned on**: those boards' terms prohibit scraping, and turning one on i
 user's decision. The scan prints a warning line for each scraped board it runs; pass
 those through.
 
-A few minutes across ~188 boards plus the other sources; LinkedIn, paced at one query
-every few seconds, is the slowest. Writes `data/candidates-YYYY-MM-DD.json` and prints
-counts to stderr. No LLM involved — every mechanical filter (metro allowlist, comp floor,
-posting age, title regex, seniority, aggregator domain gate, experience gate, dedupe) has
-already been applied by the time it returns.
+A few minutes across ~190 boards plus the other sources, all fetched side by side;
+LinkedIn, paced at one query every few seconds, is usually the slowest, and every source
+and scraped board reports its time. Writes `data/candidates-YYYY-MM-DD.json`, records the
+run in `data/last-run.json` for Step 1 next time, and prints counts to stderr. No LLM
+involved — every mechanical filter (metro allowlist, comp floor, posting age, title regex,
+seniority, aggregator domain gate, experience gate, dedupe) has already been applied by
+the time it returns.
 
 The aggregators and scraped boards are where breadth comes from: on 2026-08-19 the
 company boards alone gave 70 of 576 candidates, and Indeed reached 161 employers no other
 source did. If a scraped board reports `skipped`, the JobSpy library is not installed;
-see README.md, because the obvious pip command installs a 2023 version that silently
-does the wrong thing. A board that refuses requests mid-run is stopped and says so — the
-next scan retries it; do not rerun it straight away.
-
-Record the chosen clusters to `data/last-run.json` so the next run can offer them as the
-default.
+see README.md, and install the pinned version, since an unpinned one can be a release
+whose `scrape_jobs()` takes different arguments. A board that refuses requests, or fails
+two queries in a row, is stopped and says so — the next scan retries it; do not rerun it
+straight away.
 
 If the command fails, show the error and stop. Do not fall back to a partial scan.
 
@@ -94,6 +97,17 @@ Apply `profile/feedback.md`'s standing corrections on every run, as that file sa
 are rules drawn from verdicts the user actually gave.
 
 If a candidate's cluster has a `scoring_note` in `clusters.yaml`, apply it as well.
+
+**A description with nothing to score** — only the company's blurb, with no
+responsibilities or requirements — cannot be judged. LinkedIn listings come back like
+this. Find the requisition on the employer's own board first (`detect_ats.py`, or
+`probe_workday.py` for Workday) and score from that, checking its location too: on
+2026-11-02 a LinkedIn listing said Walnut Creek, and the employer's board said remote,
+Canada or USA. If it cannot be found, score it provisionally, mark it `snippet`, and say
+in Gaps what is unknown.
+
+**A candidate with `recruiter: true`** is a recruiter's posting for an employer it does
+not name. Say so in the entry, and never present the recruiter as the employer.
 
 **Then subtract the location penalty** already computed in each candidate's `loc_penalty`
 field. It comes from the metro's `penalty` in `filters.yaml`, or `remote.penalty` for a
@@ -146,12 +160,19 @@ Rules:
 - If `stats.clipped` > 0, say so — the candidate cap was hit and something was dropped.
 - If `stale_boards` is non-empty, list it under `## Warnings`. A board failing 3+ runs is
   a silent coverage hole.
+- If `empty_boards` is non-empty, list it under `## Warnings` too. A board that reads
+  empty three runs in a row has usually moved: `python scripts/detect_ats.py <domain>`
+  finds the new one. On 2026-11-02 seven employers with open roles had moved to Ashby.
+- If a scraped board stopped early, refused or failing, list it under `## Warnings` with
+  the reason its status line gave.
 - If nothing clears the threshold, still write the digest with the counts and say plainly
   that nothing cleared. A thin digest is information, not a failure.
 
 ## Step 6 — reconcile applications
 
-List `Applications/`. A folder there means the user has applied to **that company**, not
+List `Applications/`, skipping folders whose names start with `_`: those hold resumes
+sent to people or recruiters rather than employers (`_Not employers/`). Any other folder
+there means the user has applied to **that company**, not
 necessarily to this role — applying to a second role at the same employer is normal and
 often sensible. So annotate rather than exclude:
 
@@ -168,6 +189,18 @@ vs "Black & Veatch"), so compare names loosely.
 Show the top few in chat and offer to append verdicts to `profile/feedback.md` once the
 user has read the digest. Don't append blank entries — a verdict with no reason teaches
 nothing.
+
+Once they have marked it, the marks become a feedback.md section in one command:
+
+```bash
+python scripts/digest_applies.py --date YYYY-MM-DD --verdicts
+```
+
+It ends with what to settle first: skips with no reason, and unmarked entries whose resume
+is already filed, which were probably applied to. Show the section, settle those with the
+user, add any pattern worth naming above the tables, and append it once they agree. The
+calibration loop stalled for months on this step: two digests went unmarked after the
+first, and feedback.md stopped learning.
 
 ---
 

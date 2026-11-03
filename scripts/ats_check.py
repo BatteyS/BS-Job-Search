@@ -10,14 +10,16 @@ missing term already exists somewhere in content/master.md. That splits the
 result into two very different problems:
 
     SELECTABLE   the evidence exists, the tailoring step just didn't pick it.
-                 Fix by promoting or retagging a bullet.
+                 Fix by adding that bullet to the manifest.
     GAP          the user genuinely lacks it. Not something to write around; it
                  belongs in the digest's "gaps" line.
 
 Usage:
-    python scripts/ats_check.py --jd posting.txt --resume Resume/LaTeX/editing_split.tex
-    python scripts/ats_check.py --jd posting.txt --candidate <uid>
+    python scripts/ats_check.py --jd "<posting.txt>" --resume "Applications/<Company>/<Job Title>.tex"
     cat posting.txt | python scripts/ats_check.py --jd - --resume <file>
+
+Check the .tex filed with the application: Resume/LaTeX/editing_<variant>.tex holds only
+the last build, which in a batch is some other role's resume.
 """
 
 from __future__ import annotations
@@ -73,7 +75,27 @@ moderately highly fully partially generally primarily mainly largely
 owned ownership founded established growing growth future forward together
 clients customer customers partner partners stakeholder stakeholders
 recognized awarded ranked named voted proud pride commitment committed
+u.s usa business drive active
 """.split())
+
+# The legal and HR sentences every posting ends with, and the application form a
+# saved board page carries after "Apply for this job". Their words -- "military",
+# "employment", "attach", "select" -- are nobody's keyword, and on Redwood's
+# 2026-11-02 posting they made up a third of the GAP list.
+BOILERPLATE = re.compile(
+    r"equal (employment )?opportunit|without regard to|veteran|military|"
+    r"reasonable accommodation|personal information|privacy (notice|policy|rights)|"
+    r"pay (transparency|range)|salary range|compensation (range|will be|may vary)|"
+    r"e-verify|background check|at[- ]will|drug[- ]free|disabilit|sexual orientation|"
+    r"gender identity|national origin|criminal histor|we collect|"
+    r"apply for this job|\battach\b|enter manually|select\.\.\.|accepted file types|"
+    r"\b(first|last|preferred) name\b", re.I)
+
+
+def strip_boilerplate(jd: str) -> str:
+    """The posting without its legal and HR sentences or application form."""
+    sentences = re.split(r"(?<=[.!?])\s+|\n+", jd)
+    return " ".join(s for s in sentences if not BOILERPLATE.search(s))
 
 # Terms that look like keywords but are just the employer's own name. Populated
 # per run from --company and the posting title, because "Black Veatch" scoring
@@ -127,8 +149,9 @@ def normalize(s: str) -> str:
     s = re.sub(r"&", " and ", s)
     s = re.sub(r"[^a-z0-9+#/. ]", " ", s)
     # Keep dots inside tokens (node.js, u.s.) but drop trailing ones, which
-    # otherwise produce keywords like "projects."
-    s = re.sub(r"\.(?=\s|$)", " ", s)
+    # otherwise produce keywords like "projects." -- a whole run of them, or
+    # "select..." survives as "select..".
+    s = re.sub(r"\.+(?=\s|$)", " ", s)
     return re.sub(r"\s+", " ", s)
 
 
@@ -191,7 +214,7 @@ def main() -> int:
     if args.company:
         COMPANY_TOKENS.update(w for w in normalize(args.company).split() if len(w) > 2)
 
-    jd = read_text(args.jd)
+    jd = strip_boilerplate(read_text(args.jd))
     if not jd.strip():
         print("empty job description", file=sys.stderr)
         return 2
@@ -245,7 +268,7 @@ def main() -> int:
 
     if selectable:
         print("SELECTABLE -- evidence exists in master.md but wasn't chosen.")
-        print("Promote or retag these bullets; do not write new claims.")
+        print("Add those bullets to the manifest; do not write new claims.")
         for t, f in selectable:
             print(f"   {f:>3}x  {t}")
         print()
@@ -256,7 +279,7 @@ def main() -> int:
         print("      an internal tool that connected two systems IS integration")
         print("      work even when 'integration' isn't in master.md. Rephrasing")
         print("      real work in the posting's vocabulary is legitimate.")
-        print("  (b) He genuinely lacks it -> report on the digest's 'gaps' line.")
+        print("  (b) The user genuinely lacks it -> report on the digest's 'gaps' line.")
         print("Never invent experience to close one of these.")
         for t, f in gaps:
             print(f"   {f:>3}x  {t}")

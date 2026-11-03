@@ -7,14 +7,13 @@ content/contact.local.md
 sources/adzuna.local.yaml
 sources/usajobs.local.yaml
 
-# Pre-migration resumes, superseded by content/master.md. Kept on disk for
-# reference but out of the repo: they carry contact details in their headers,
-# and they contain the contradictory phrasings that motivated the move to a
-# single source of truth.
-Resume/LaTeX/chronological.tex
-Resume/LaTeX/split.tex
-Resume/LaTeX/research.tex
-Resume/LaTeX/split_scada.tex
+# Every .tex in Resume/LaTeX is a build output or a local draft except the two
+# templates the builders read. Generated resumes carry contact details, and
+# their content lives in content/master.md, which is tracked. One rule, rather
+# than a list of one person's old resume names.
+Resume/LaTeX/*.tex
+!Resume/LaTeX/template.tex
+!Resume/LaTeX/letter.tex
 
 # Local scan state. Per-machine by design -- tracking it would conflict on
 # every pull for no benefit.
@@ -29,10 +28,7 @@ Resume/build/
 *.fls
 *.fdb_latexmk
 
-# Generated resumes. The CONTENT lives in content/master.md, which is tracked;
-# these are outputs and would otherwise churn the diff on every build.
-Resume/LaTeX/editing_*.tex
-Resume/LaTeX/cv_generated.tex
+# Generated PDFs: outputs, which would otherwise churn the diff on every build.
 Resume/pdf/
 
 # Scan state. seen.sqlite is a local cache -- losing it only re-surfaces old

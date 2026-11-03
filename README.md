@@ -155,34 +155,27 @@ scrape them. Each is off until you turn it on under `sources` in `profile/filter
 and every scan prints a warning for each one it runs. Two things limit the risk and are
 not settings: nothing logs in, so no account of yours is involved, and each board runs at
 a fixed, polite pace, stopping for the rest of the run if the board starts refusing
-requests. LinkedIn is the touchiest: it fetches each posting's page and is capped at 40
+requests or two queries in a row fail. LinkedIn is the touchiest: it fetches each posting's page and is capped at 40
 queries a run. There is no proxy support, on purpose. Google Jobs is not offered: JobSpy
 lists it as currently unavailable.
 
 All four go through [JobSpy](https://github.com/speedyapply/JobSpy). With uv, install it
 with `uv sync --extra scraped`, adding `--extra pdf` if you use that one. `uv.lock` pins
-the release this workflow is written against, on the Python in `.python-version`.
-Verified 2026-10-30 with uv 0.13.6 on macOS: two live Indeed queries returned 43
-postings.
+JobSpy 1.4.1, the release this workflow is written against. Verified 2026-11-02 on
+macOS: six live Bay Area queries per board returned postings with full descriptions
+from Indeed (140), Glassdoor (103), and ZipRecruiter (35). The 1.1 release it replaced
+returned nothing from Glassdoor or ZipRecruiter.
 
-Without uv, JobSpy needs **Python 3.10 or newer**, and installing it has a trap.
-A plain `pip install python-jobspy` **fails on Python 3.14**: it pins
-`regex<2025.0.0`, which has no cp314 wheel, so pip tries to compile it and stops
-on a missing MSVC toolchain. Pip's fallback is worse than the error — it silently
-resolves to version 1.1.13 from 2023, whose `scrape_jobs()` has a different
-signature and no `hours_old`.
-
-Install the current version without its stale pins:
+Without uv, JobSpy needs **Python 3.10 or newer**. Name the version: an unpinned
+install can resolve to an old release whose `scrape_jobs()` takes different arguments.
+1.4.1 installs from prebuilt wheels on Python 3.10 through 3.14:
 
 ```bash
-python -m pip install --no-deps python-jobspy==1.1.82
-python -m pip install --only-binary :all: beautifulsoup4 markdownify numpy pandas pydantic requests tls-client regex
+python -m pip install python-jobspy==1.4.1
 ```
 
-Pip will warn that the installed versions contradict the pins. That is expected
-and the Indeed path works regardless — verified 2026-08-19 against ~14,000 live
-postings. Either way, check it took with a five-result search for one of your clusters
-and metros:
+Either way, check it took with a five-result search for one of your clusters and
+metros:
 
 ```bash
 python scripts/jobspy_source.py --clusters <cluster> --metros <metro> --sites indeed --limit 5
@@ -226,11 +219,15 @@ profile, resume facts, and digests are not among them, so nothing of yours is to
 ```bash
 git remote add template https://github.com/BatteyS/BS-Job-Search.git
 git fetch template
-git checkout template/main -- scripts presets .claude tests examples Resume/LaTeX \
-    pyproject.toml uv.lock CLAUDE.md README.md ARCHITECTURE.md
+git checkout template/main -- .claude .github scripts presets tests examples Resume/LaTeX \
+    content/contact.example.md content/story.example.md pyproject.toml uv.lock \
+    .python-version .gitattributes .gitignore CLAUDE.md README.md ARCHITECTURE.md \
+    LICENSE scan.ps1 sync.ps1
 ```
 
-Read the diff, run the tests, and commit.
+That is every file the template ships, the list `scripts/export_template.py` exports. Read
+the diff, run `uv sync` again with your extras if `uv.lock` changed, run the tests, and
+commit.
 
 ## Tests
 

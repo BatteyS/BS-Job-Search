@@ -119,6 +119,27 @@ def from_page(html: str) -> str:
     return html_to_text(body.group(1) if body else html)
 
 
+def from_linkedin(html: str) -> str:
+    """The posting on a LinkedIn guest job page, or "" if the page has none.
+
+    LinkedIn wraps the posting in a show-more-less-html div and surrounds it
+    with sign-in prompts and similar-jobs lists, with no JSON-LD. Read as a
+    whole page, that chrome counted as description: on 2026-11-02 a listing
+    whose description was only the company's blurb came back as 12,661 usable
+    characters.
+    """
+    m = re.search(r'(?is)<div[^>]*class="[^"]*show-more-less-html__markup[^"]*"[^>]*>',
+                  html)
+    if not m:
+        return ""
+    depth = 1
+    for tag in re.finditer(r"(?is)<(/?)div\b", html[m.end():]):
+        depth += -1 if tag.group(1) else 1
+        if depth == 0:
+            return html_to_text(html[m.end():m.end() + tag.start()])
+    return html_to_text(html[m.end():])
+
+
 def fetch_description(url: str, timeout: int = 30,
                       min_chars: int = 1200) -> tuple[str, dict, str]:
     """Pull one posting's text. Returns (text, meta, status).
@@ -148,7 +169,12 @@ def fetch_description(url: str, timeout: int = 30,
 
     text, meta = from_json_ld(r.text)
     meta["source"] = "json-ld"
-    if len(text) < min_chars:
+    if len(text) < min_chars and "linkedin.com/jobs" in r.url:
+        # Never the whole page here: its chrome would pass for a description.
+        posting = from_linkedin(r.text)
+        if len(posting) > len(text):
+            text, meta["source"] = posting, "linkedin"
+    elif len(text) < min_chars:
         page = from_page(r.text)
         if len(page) > len(text):
             text, meta["source"] = page, "page-text"
@@ -167,7 +193,22 @@ def fetch_description(url: str, timeout: int = 30,
     return text, meta, ("ok" if len(text) >= min_chars else "short")
 
 
+META_KEYS = ("title", "company", "date_posted", "valid_through", "employment_type")
+
+
+def save_posting(path: str, where: str, meta: dict, text: str) -> None:
+    """Write a posting beside its application: a short header, then the text.
+    Shared with digest_applies.py --fetch, so every saved posting reads alike."""
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    header = [f"# source: {where}"] + [f"# {k}: {meta[k]}" for k in META_KEYS if meta.get(k)]
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write("\n".join(header) + "\n\n" + text + "\n")
+
+
 def main() -> int:
+    # Piped, stdout is block-buffered and stderr is not, so a verdict printed
+    # to stderr would land above the report it ends.
+    sys.stdout.reconfigure(line_buffering=True)
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", required=True)
     ap.add_argument("--out", help="file to write the posting text to")
@@ -189,18 +230,12 @@ def main() -> int:
     print(f"final url : {where}")
     print(f"source    : {meta.get('source', '')}")
     print(f"chars     : {len(text)}")
-    for k in ("title", "company", "date_posted", "valid_through", "employment_type"):
+    for k in META_KEYS:
         if meta.get(k):
             print(f"{k:10}: {meta[k]}")
 
     if args.out:
-        os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
-        header = [f"# source: {where}"]
-        header += [f"# {k}: {meta[k]}" for k in
-                   ("title", "company", "date_posted", "valid_through",
-                    "employment_type") if meta.get(k)]
-        with open(args.out, "w", encoding="utf-8", newline="\n") as fh:
-            fh.write("\n".join(header) + "\n\n" + text + "\n")
+        save_posting(args.out, where, meta, text)
         print(f"saved     : {args.out}")
 
     if status == "short":

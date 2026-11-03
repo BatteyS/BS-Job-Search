@@ -90,3 +90,79 @@ def test_a_digest_from_before_the_box_reads_as_no_letter(result):
 def test_a_filed_resume_and_a_missing_letter_are_told_apart(result):
     birch = next(e for e in result["apply"] if e["n"] == 2)
     assert birch["already_built"] and not birch["letter_built"]
+
+
+VERDICTS = """# Job digest — 2026-11-03
+
+### 1. Acme Energy — Project Engineer · **84** · Sacramento
+- [x] apply
+- [ ] skip — reason:
+- [ ] cover letter
+
+### 2. Birch Grid — Field Engineer · **80** · Sacramento
+- [ ] apply
+- [x] skip — reason: wants 8+ years
+- [ ] cover letter
+
+### 3. Cedar Power — Analyst · **75** · Sacramento
+- [ ] apply
+- [x] skip — reason:
+- [ ] cover letter
+
+### 4. Dune Solar — Developer · **72** · Sacramento
+- [ ] apply
+- [ ] skip — reason:
+- [ ] cover letter
+"""
+
+
+def test_verdicts_read_as_a_feedback_section(tmp_path, monkeypatch):
+    apps = tmp_path / "Applications"
+    (apps / "Dune Solar").mkdir(parents=True)
+    for ext in (".pdf", ".tex"):
+        (apps / "Dune Solar" / f"Developer{ext}").write_text("", encoding="utf-8")
+    monkeypatch.setattr(digest_applies, "APPS", str(apps))
+    path = tmp_path / "2026-11-03.md"
+    path.write_text(VERDICTS, encoding="utf-8")
+    text = digest_applies.verdicts(digest_applies.parse(str(path)))
+    assert "4 scored, 1 apply, 2 skip" in text
+    assert "| 2 | Birch Grid — Field Engineer | 80 | wants 8+ years |" in text
+    assert "#3 Cedar Power — Analyst: skipped with no reason" in text
+    assert "#4 Dune Solar — Developer: unmarked, but its resume is filed" in text
+
+
+class Posting:
+    def __init__(self, title, description=""):
+        self.title, self.description, self.ats = title, description, "greenhouse"
+
+
+BOARDS = [{"name": "Redwood Materials", "ats": "greenhouse", "token": "redwoodmaterials"}]
+
+
+def board_listing(*titles):
+    return lambda board: ([Posting(t) for t in titles], True, "")
+
+
+def fill(job):
+    job.description = "Own BESS projects end to end."
+
+
+def test_a_failed_link_is_found_on_the_employers_board():
+    listing = board_listing("Solar PV Project Engineer, Senior or Staff",
+                            "BESS Project Engineer, Senior or Staff")
+    job, why = digest_applies.find_on_board(
+        "Redwood Materials", "BESS Project Engineer, Senior or Staff", BOARDS, listing, fill)
+    assert job.title == "BESS Project Engineer, Senior or Staff" and job.description
+
+
+def test_an_ambiguous_title_is_reported_not_guessed():
+    listing = board_listing("Project Engineer, Solar", "Project Engineer, Storage")
+    job, why = digest_applies.find_on_board("Redwood Materials", "Project Engineer", BOARDS,
+                                            listing, fill)
+    assert job is None and "several postings" in why
+
+
+def test_an_employer_without_a_board_says_so():
+    job, why = digest_applies.find_on_board("Climate People", "Senior Project Engineer",
+                                            BOARDS, board_listing(), fill)
+    assert job is None and "not in sources/companies.yaml" in why

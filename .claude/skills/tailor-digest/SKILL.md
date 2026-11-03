@@ -38,25 +38,33 @@ output need a decision before any building starts:
   confirm that's right rather than letting one employer split across two folders.
 
 Show them the parsed list and get a go-ahead before building. A mis-parsed heading is much
-cheaper to catch here than after seven PDFs are filed.
+cheaper to catch here than after seven PDFs are filed. Read the counts back, letters
+included: `cover letter` is the easiest box to miss. On 2026-11-02 a user asked for three
+letters with none of the boxes ticked.
 
 ## Step 2 — fetch every posting first, before tailoring any of them
 
-Do this for the whole list up front, not lazily per role:
+Do this for the whole list up front, not lazily per role, in one command:
 
 ```bash
-python scripts/fetch_posting.py --url "<url>" --out "<folder>/<Job Title> - posting.txt"
+python scripts/digest_applies.py --fetch
 ```
+
+It saves each apply's posting as `<folder>/<Job Title> - posting.txt`. When the digest's
+link fails or comes back thin, it looks the role up on the employer's own board in
+`sources/companies.yaml`: that is how Redwood's posting was found on 2026-11-02, when
+LinkedIn refused it. Each role comes back saved, DEAD, or NEEDS A BROWSER OR A PASTE.
 
 Two reasons it goes first. Dead postings drop out before you spend effort on them — on the
 first batch run, one marked role was already a 404. And the fetch failures are the roles
 that need the user, so you want them identified in one batch rather than interrupting them
 seven times.
 
-Handle the exit codes as `tailor-resume` Step 1 describes. **A code 3 means stop on that
-role** — report it and move on. A code 2 means the description is unusable; escalate to a
-browser fetch or ask the user to paste it, but do not fall back to the digest snippet. Tailoring
-against eighty words produces a resume that looks tailored and isn't.
+**A DEAD role means stop on that role** — report it and move on. For a role that needs a
+browser or a paste, try the employer's board first if `companies.yaml` does not list it
+(`tailor-resume` Step 1 says how), then a browser fetch, or ask the user to paste it.
+Never fall back to the digest snippet: tailoring against eighty words produces a resume
+that looks tailored and isn't.
 
 Report the fetch results as a group before building anything: which came back full, which
 are dead, which need a paste.
