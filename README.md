@@ -30,6 +30,10 @@ Python on the machine:
 uv sync
 ```
 
+```bash
+uv sync --extra pdf --extra scraped
+```
+
 Add `--extra pdf` to read a PDF resume when building your profile, and `--extra scraped`
 for the scraped job boards (below). Name every extra you want each time, as in
 `uv sync --extra pdf --extra scraped`: a sync uninstalls any extra it is not given. Then
