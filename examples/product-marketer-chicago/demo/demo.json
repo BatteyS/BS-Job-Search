@@ -1,0 +1,17 @@
+{
+  "who": "Avery Chen",
+  "about": "a senior product marketer in Chicago, aiming for director",
+  "resumes": [
+    {"company": "Tallgrass Freight Cloud",
+     "title": "Director, Product Marketing",
+     "manifest": "resume-tallgrass.json"},
+    {"company": "Larchmont Software",
+     "title": "Principal Product Marketing Manager, Pricing & Packaging",
+     "manifest": "resume-larchmont.json"}
+  ],
+  "letters": [
+    {"company": "Tallgrass Freight Cloud",
+     "title": "Director, Product Marketing",
+     "letter": "letter-tallgrass.json"}
+  ]
+}

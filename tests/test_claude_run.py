@@ -19,6 +19,8 @@ from helpers import ROOT
 sys.path.insert(0, os.path.join(ROOT, "ui"))
 import claude_run  # noqa: E402
 import core  # noqa: E402
+import router  # noqa: E402
+import usage  # noqa: E402
 
 
 # --------------------------------------------------------------- the binary
@@ -122,6 +124,12 @@ class ResultMessage:
     result: str = ""
     num_turns: int = 1
     total_cost_usd: float | None = None
+    usage: dict | None = None
+
+
+@dataclass
+class RateLimitEvent:
+    rate_limit_info: object
 
 
 def test_sdk_messages_become_page_events():
@@ -146,10 +154,25 @@ def test_sdk_messages_become_page_events():
 
     done = claude_run.events_from(ResultMessage(num_turns=3, total_cost_usd=0.5))[0]
     assert done == {"kind": "turn_end", "subtype": "success", "is_error": False,
-                    "num_turns": 3, "cost": 0.5, "result": ""}
+                    "num_turns": 3, "cost": 0.5, "tokens": 0, "result": ""}
     err = claude_run.events_from(ResultMessage(is_error=True, result="Not logged in"))[0]
     assert err["is_error"] and err["result"] == "Not logged in"
     assert "auth login" in claude_run._explain(err["result"], "/x/claude")
+
+
+def test_plan_usage_and_tokens_become_events():
+    info = types.SimpleNamespace(status="allowed", rate_limit_type="five_hour", utilization=None,
+                                 resets_at=100, raw={"unifiedWindows": {
+                                     "five_hour": {"utilization": 0.4, "resetsAt": 100},
+                                     "seven_day": {"utilization": 0.1, "resetsAt": 900}}})
+    [ev] = claude_run.events_from(RateLimitEvent(info))
+    assert ev["kind"] == "limits"
+    assert ev["windows"]["five_hour"]["used"] == 0.4 and ev["windows"]["seven_day"]["used"] == 0.1
+
+    turn = ResultMessage(total_cost_usd=0.2, usage={
+        "input_tokens": 2, "output_tokens": 30, "cache_read_input_tokens": 900,
+        "cache_creation_input_tokens": 100, "output_tokens_details": {"thinking_tokens": 5}})
+    assert claude_run.events_from(turn)[0]["tokens"] == 1032
 
 
 def test_the_login_hint_names_the_binary_the_page_found(monkeypatch):
@@ -159,6 +182,41 @@ def test_the_login_hint_names_the_binary_the_page_found(monkeypatch):
     monkeypatch.setattr(claude_run.shutil, "which", lambda n: "/A B/claude")
     assert claude_run.login_command("/A B/claude") == "claude auth login"
     assert claude_run._explain("boom", "/A B/claude") == "boom"
+
+
+def test_the_setup_tab_gets_the_one_command_to_run(monkeypatch):
+    pytest.importorskip("claude_agent_sdk")
+    import subprocess
+
+    def fake_run(argv, **kw):
+        out = '{"loggedIn": %s}' % ("true" if logged_in else "false")
+        return subprocess.CompletedProcess(argv, 0, out if "auth" in argv else "2.1.317", "")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(claude_run.shutil, "which", lambda n: "/u/bin/claude")
+
+    monkeypatch.setattr(claude_run, "find_claude", lambda: (None, "no Claude Code binary found"))
+    s = claude_run.claude_status()
+    assert not s["available"] and s["install"] == claude_run.install_command() and "login" not in s
+
+    logged_in = False
+    monkeypatch.setattr(claude_run, "find_claude", lambda: ("/u/bin/claude", "on PATH"))
+    s = claude_run.claude_status()
+    assert not s["available"] and s["login"] == "claude auth login" and "install" not in s
+
+    # Only the SDK's own copy: the page asks for Claude Code itself, not a login to that copy.
+    monkeypatch.setattr(claude_run, "find_claude", lambda: ("/sdk/_bundled/claude", claude_run.BUNDLED))
+    s = claude_run.claude_status()
+    assert not s["available"] and "install" in s and "login" not in s
+
+    logged_in = True
+    s = claude_run.claude_status()
+    assert s["available"] and s["logged_in"] and "install" not in s and "login" not in s
+
+
+def test_the_install_command_fits_the_system():
+    assert claude_run.install_command("Windows").startswith("irm https://claude.ai/install.ps1")
+    assert claude_run.install_command("Darwin") == claude_run.install_command("Linux")
+    assert "https://claude.ai/install.sh" in claude_run.install_command("Darwin")
 
 
 # -------------------------------------------------------------------- cards
@@ -263,6 +321,25 @@ def test_say_and_stop_follow_the_status(monkeypatch, tmp_path):
     loop.run_until_complete(asyncio.sleep(0))
     assert run.status == "done" and run._inbox.get_nowait() is None
     assert list(run.follow(0))[-1] is None
+
+
+def test_a_skill_starts_on_its_route_and_the_pick_is_checked(monkeypatch, tmp_path):
+    monkeypatch.setattr(claude_run, "find_claude", lambda: ("/bin/true", "test"))
+    monkeypatch.setattr(claude_run.ClaudeRun, "start", lambda self: self)
+    monkeypatch.setattr(usage, "USAGE", str(tmp_path / "ui-usage.json"))
+    run = claude_run.start_skill("cover-letter", {"text": "https://example.com/job"})
+    assert run.prompt == "/cover-letter https://example.com/job"
+    assert (run.route["model"], run.route["effort"], run.route["auto"]) == ("opus", "high", True)
+
+    run = claude_run.start_skill("cover-letter", {"text": "x", "model": "sonnet"})
+    assert (run.route["model"], run.route["effort"]) == ("sonnet", "high")
+    with pytest.raises(ValueError):
+        claude_run.start_skill("setup", {"effort": "ultra"})
+
+    usage.record({"five_hour": {"used": 0.9, "resets_at": 4_000_000_000}}, "run")
+    assert claude_run.start_skill("tailor-resume", {"text": "x"}).route["model"] == "sonnet"
+    assert [s["route"]["model"] for s in claude_run.skills(limits={})] == [
+        router.ROUTES[name][0] for name in claude_run.SKILLS]
 
 
 def test_one_skill_at_a_time(monkeypatch, tmp_path):
@@ -377,6 +454,61 @@ def test_a_stopped_turn_that_ends_in_an_error_reads_as_stopped(monkeypatch, tmp_
     run._thread.join(timeout=3)
     assert run.status == "stopped" and not run._thread.is_alive()
     assert not [e for e in run.events if e["kind"] == "error"]
+
+
+def test_a_run_goes_out_on_its_route_and_keeps_its_usage(monkeypatch, tmp_path):
+    """The route reaches Claude Code as --model and --effort, Opus gets Sonnet
+    as its overload fallback, the route is the run's first note, and each turn's
+    tokens and the plan's windows are kept."""
+    monkeypatch.setattr(claude_run, "INDEX", str(tmp_path / "ui-runs.json"))
+    monkeypatch.setattr(usage, "USAGE", str(tmp_path / "ui-usage.json"))
+    seen = {}
+    info = types.SimpleNamespace(status="allowed", rate_limit_type="five_hour", utilization=None,
+                                 resets_at=None, raw={"unifiedWindows": {
+                                     "five_hour": {"utilization": 0.33, "resetsAt": 4_000_000_000}}})
+
+    class Client:
+        def __init__(self, options):
+            seen["options"] = options
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def query(self, prompt):
+            seen["prompt"] = prompt
+
+        async def interrupt(self):
+            pass
+
+        async def disconnect(self):
+            pass
+
+        async def receive_response(self):
+            yield RateLimitEvent(info)
+            yield ResultMessage(total_cost_usd=0.12, usage={"input_tokens": 10, "output_tokens": 90})
+
+    monkeypatch.setitem(sys.modules, "claude_agent_sdk", types.SimpleNamespace(
+        ClaudeAgentOptions=lambda **kw: kw, ClaudeSDKClient=Client))
+    run = claude_run.ClaudeRun("cover-letter", "/cover-letter x", "/bin/true",
+                               route=router.route("cover-letter")).start()
+    for _ in range(300):
+        if run.status == "idle":
+            break
+        threading.Event().wait(0.01)
+    assert run.status == "idle"
+    opts = seen["options"]
+    assert (opts["model"], opts["effort"], opts["fallback_model"]) == ("opus", "high", "sonnet")
+    kinds = [e["kind"] for e in run.events if e["kind"] != "status"]
+    assert kinds[:2] == ["route", "user"] and "limits" in kinds
+    assert (run.tokens, run.cost) == (100, 0.12)
+    assert usage.windows()["five_hour"]["used"] == 0.33
+    assert claude_run.load_index()[-1]["route"] == "Opus · high"
+    run.stop()
+    run._thread.join(timeout=3)
+    assert run.status == "done"
 
 
 def test_a_run_stopped_before_it_starts_never_opens_a_session(monkeypatch, tmp_path):

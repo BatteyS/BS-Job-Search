@@ -59,11 +59,14 @@ so this repo stays scrubbed. Never write a phone number or email into a tracked 
 
 ## Per-machine setup
 
-Git config does not sync. On each machine, once:
+`content/contact.local.md` and the API key files do not sync. On each machine, `/setup`
+writes the first (or copy `content/contact.example.md` and edit it), and the page's Setup
+tab saves the keys. A copy pushed to a private repository of its own (README, "Backing
+up, and a second machine") also needs this once on each machine, since git config does
+not sync either:
 
 ```bash
 git config pull.rebase true
-cp content/contact.example.md content/contact.local.md   # then edit
 ```
 
 Skills write commands as `python scripts/<name>.py`. Where uv is installed (there is a

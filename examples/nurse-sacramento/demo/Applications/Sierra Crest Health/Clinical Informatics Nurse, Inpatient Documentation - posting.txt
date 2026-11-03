@@ -1,0 +1,38 @@
+# source: https://example.com/sierra-crest/clinical-informatics-nurse
+# title: Clinical Informatics Nurse, Inpatient Documentation
+# company: Sierra Crest Health
+# employment_type: Full-time
+
+A fictional posting, written for the BS Job Search demo. Sierra Crest Health is not a
+real employer.
+
+Clinical Informatics Nurse, Inpatient Documentation
+Sierra Crest Health · Sacramento, CA · Hybrid, three days on site
+$124,000 – $148,000 a year
+
+About the role
+Our four hospitals share one Epic build. The clinical informatics team turns what nurses
+need at the bedside into documentation that is quick to chart and easy to find. You will
+join six informatics nurses who own inpatient nursing documentation in Epic ClinDoc:
+flowsheets, care plans, and order sets.
+
+What you will do
+- Gather requirements from bedside nurses and nurse managers, and translate inpatient
+  nursing workflows into Epic build requests.
+- Test new and changed flowsheets before each release, and write the tip sheets that go
+  with them.
+- Support go-lives at the elbow on every unit that receives a change.
+- Train nurses and super-users on new documentation, in classes and on the unit.
+- Track adoption after each change, and bring what nurses report back to the build team.
+
+What you bring
+- A current California RN license and a BSN.
+- At least three years of acute-care nursing; critical care preferred.
+- Experience as an Epic super-user, or supporting an Epic go-live.
+- The habit of asking nurses how a workflow really works before changing it.
+
+Nice to have
+- Progress toward a nursing informatics certificate or degree.
+- Charge nurse or precepting experience.
+
+We sponsor Epic ClinDoc certification within six months of hire.

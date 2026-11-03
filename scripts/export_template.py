@@ -43,7 +43,7 @@ ENGINE = [
     ".claude/settings.json", ".claude/skills/*", ".github/*",
     ".gitattributes", ".gitignore", ".python-version",
     "ARCHITECTURE.md", "CLAUDE.md", "LICENSE", "README.md",
-    "pyproject.toml", "uv.lock", "scan.ps1", "sync.ps1",
+    "pyproject.toml", "uv.lock", "scan.ps1", "sync.ps1", "start.command", "start.cmd",
     "content/contact.example.md", "content/story.example.md",
     "examples/*", "presets/*", "scripts/*", "tests/*", "ui/*",
     "sources/adzuna.example.yaml", "sources/usajobs.example.yaml",

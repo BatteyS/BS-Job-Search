@@ -1,0 +1,27 @@
+{
+  "variant": "chronological",
+  "experience": [
+    {"employer": "Kestrel Valley Medical Center", "role": "Registered Nurse, Cardiovascular ICU",
+     "bullets": [
+       "Precepted 8 new-graduate and transfer nurses",
+       "Led a 4-month pilot of continuous capnography",
+       "Unit practice council member since 2023",
+       "Epic super-user for the hospital's 2023 upgrade",
+       "Cares for post-CABG, valve, LVAD, and IABP patients",
+       "Relief charge nurse one to two shifts a week"
+     ]},
+    {"employer": "Delta Ridge Hospital", "role": "Registered Nurse, Cardiac Telemetry",
+     "bullets": [
+       "Falls-prevention team member",
+       "telemetry patients a shift",
+       "Completed charge nurse orientation in 2021"
+     ]}
+  ],
+  "skills": ["Teaching:", "Clinical:", "Systems:"],
+  "sections": {
+    "Licenses & Certifications": ["Registered Nurse, California Board", "CCRN (Adult)", "ACLS and BLS",
+                                  "NIH Stroke Scale"],
+    "Volunteer": [{"employer": "Riverbend Community Clinic",
+                   "bullets": ["walk-in patients per Saturday shift", "hypertension follow-up handout"]}]
+  }
+}

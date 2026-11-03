@@ -25,6 +25,20 @@ Every person, employer, school, and number in them is invented.
 `profile/feedback.md` is the one file not shown: it starts empty and fills with your
 verdicts on each digest.
 
+## Demos
+
+Each example also has a `demo/` folder: a fictional digest, the postings for the roles it
+marked `apply`, the resume selections (manifests) for them, and a cover letter. From those,
+`ui/build_demo.py` builds the local page as static files, filled in for that person, with
+the resumes and letters built from their `master.md` and `story.md`:
+
+```bash
+python ui/build_demo.py demo-site
+```
+
+Open `demo-site/index.html` through any static file server, or see them published at
+[batteys.github.io/BS-Job-Search](https://batteys.github.io/BS-Job-Search/).
+
 ## Trying one
 
 Build an example's full resume — every bullet, fitted to its page limit:
@@ -45,8 +59,9 @@ python scripts/fetch_jobs.py --all-clusters --preview --sources boards --cluster
 
 ## Starting your own
 
-Run `/setup` in Claude Code. It interviews you and writes these six files, then leaves
-them yours to edit. You do not need to copy an example first.
+Press **Set up** on the page's Setup tab, or run `/setup` in Claude Code. It interviews
+you and writes these six files, then leaves them yours to edit. You do not need to copy
+an example first.
 
 To write them by hand instead, put each file at the path in the table above, starting
 from whichever example is closer to you, and run `python scripts/doctor.py` to see what

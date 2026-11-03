@@ -69,21 +69,17 @@ name = "bs-job-search"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "claude-agent-sdk" },
+    { name = "fastapi" },
+    { name = "pypdf" },
     { name = "pyyaml" },
     { name = "requests" },
+    { name = "uvicorn" },
 ]
 
 [package.optional-dependencies]
-pdf = [
-    { name = "pypdf" },
-]
 scraped = [
     { name = "python-jobspy" },
-]
-ui = [
-    { name = "claude-agent-sdk" },
-    { name = "fastapi" },
-    { name = "uvicorn" },
 ]
 
 [package.dev-dependencies]
@@ -93,13 +89,13 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "claude-agent-sdk", marker = "extra == 'ui'", specifier = ">=0.2" },
-    { name = "fastapi", marker = "extra == 'ui'", specifier = ">=0.115" },
-    { name = "pypdf", marker = "extra == 'pdf'", specifier = ">=4" },
+    { name = "claude-agent-sdk", specifier = ">=0.2" },
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "pypdf", specifier = ">=4" },
     { name = "python-jobspy", marker = "extra == 'scraped'", specifier = "==1.4.1" },
     { name = "pyyaml", specifier = ">=6" },
     { name = "requests", specifier = ">=2.28" },
-    { name = "uvicorn", marker = "extra == 'ui'", specifier = ">=0.30" },
+    { name = "uvicorn", specifier = ">=0.30" },
 ]
 provides-extras = ["scraped", "pdf", "ui"]
 

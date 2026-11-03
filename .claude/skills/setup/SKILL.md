@@ -45,7 +45,7 @@ show what finished files look like.
   `<!-- /setup: still to ask -->` under each role or heading not yet covered. A later
   /setup run that finds the draft line picks up at the first of those, then the review.
 - **Never ask for an API key or password in chat.** Keys go into gitignored files the
-  user edits themselves (Step 8).
+  user fills in themselves, from the page's Setup tab or in an editor (Step 8).
 - **Scraped boards are the user's decision, one board at a time** (Step 9).
 - **A few questions at a time.** Three to six per turn, one role or topic at a time,
   not a questionnaire.
@@ -58,7 +58,7 @@ python scripts/doctor.py
 
 It checks Python, LaTeX, every profile file, the API keys and the sources, and prints the
 fix for anything missing on this operating system. Fix Python first if it is broken,
-since every later step runs a script. The README's setup section covers it: `uv sync`.
+since every later step runs a script: run the fix doctor prints.
 LaTeX is needed only to build resumes and letters, so if it is missing, give the user the
 install step doctor prints and carry on while it installs.
 
@@ -91,19 +91,21 @@ how good everything after it is.** Say so, and take the time.
 
 ### 3a — gather what they have
 
-Ask for their current resume as a .docx, PDF, or text file, by path. Ask too for anything
-else that holds career detail: an older or longer resume, their LinkedIn profile saved as
-a PDF (on their profile page: More, then Save to PDF), a self-review, a portfolio page.
-Pull out the text:
+Ask for their current resume as a .docx, PDF, or text file. Most people have never
+copied a file's location, so say how: on a Mac, click the file in Finder and press ⌥⌘C;
+on Windows, click it in File Explorer and press Ctrl+Shift+C; then paste it. Pasting the
+resume's text works too. Ask also for anything else that holds career detail: an older
+or longer resume, their LinkedIn profile saved as a PDF (on their profile page: More,
+then Save to PDF), a self-review, a portfolio page. Pull out the text:
 
 ```bash
 python scripts/extract_text.py "<path>"
 ```
 
 Also read the original (the Read tool opens PDFs and images), because layout does not
-survive extraction and columns or tables can come out jumbled. A PDF needs the `pdf`
-extra, and doctor prints its install command. No resume at all is fine: build it from
-the interview.
+survive extraction and columns or tables can come out jumbled. A PDF needs pypdf,
+which uv installs with the rest; doctor says if it is missing. No resume at all is
+fine: build it from the interview.
 
 ### 3b — transcribe
 
@@ -183,8 +185,10 @@ python scripts/doctor.py
 python scripts/build_resume.py --all --out editing_cv
 ```
 
-Show them `Resume/pdf/editing_cv.pdf`. It is the first thing setup produces that looks
-like progress. Real resumes are tailored to each posting by /tailor-resume, so the page
+Show them `Resume/pdf/editing_cv.pdf`: tell them where to open it, since you cannot put
+a PDF in front of them. In the page, the Setup tab links to it under Your profile; from
+a terminal, it is in the folder's `Resume/pdf/`. It is the first thing setup produces
+that looks like progress. Real resumes are tailored to each posting by /tailor-resume, so the page
 limit trimming this one is not losing anything. If doctor reports a date problem, fix it
 with the user.
 
@@ -329,11 +333,14 @@ directly. USAJOBS is federal hiring. Both are free, and both need a key:
 | Adzuna | https://developer.adzuna.com/signup | `sources/adzuna.local.yaml` |
 | USAJOBS | https://developer.usajobs.gov/APIRequest | `sources/usajobs.local.yaml` |
 
-For each source that is on, copy its `sources/*.example.yaml` to the `.local.yaml` name,
-and tell the user to open that file and paste their key in themselves. **Do not ask for
-the key in chat**: anything pasted here stays in the conversation. USAJOBS also needs
-the email the key was registered under. Doctor checks the keys without printing them. A
-user without a key yet can turn that source off for now.
+For each source that is on, tell the user where the key goes. The page's Setup tab has a
+form for each source that saves it to the `.local.yaml` file; that is the way when setup
+runs from the page. In a terminal, copy the source's `sources/*.example.yaml` to the
+`.local.yaml` name, and tell the user to open that file and paste their key in
+themselves. **Do not ask for the key in chat**: anything pasted here stays in the
+conversation. USAJOBS also needs the email the key was registered under. Doctor checks
+the keys without printing them. A user without a key yet can turn that source off for
+now.
 
 ## Step 9 — scraped boards, one decision each
 
@@ -351,9 +358,9 @@ The README's section on scraped boards has the full account. Then ask about each
 separately: one AskUserQuestion call with a question per board, "Leave it off" as the
 first option of each. Set a board to `true` under `sources` only on a yes for that board.
 
-If any board is on, the `scraped` extra must be installed. Doctor prints the command,
-which keeps the `pdf` extra too if it is installed. Say that it installs about 180 MB,
-and run it once the user agrees.
+If any board is on, the `scraped` extra must be installed: `uv sync --extra scraped`,
+the command doctor prints. Say that it installs about 180 MB, and run it once the user
+agrees.
 
 ## Step 10 — target employers, sources/companies.yaml
 
@@ -443,8 +450,14 @@ Run doctor once more and resolve whatever it reports. Then explain how the piece
    posting, or something the user said. When a letter needs a story the files lack, it
    asks, and adds the answer to story.md once the user approves it.
 
-If this copy is a git repository, offer to commit the new files. `contact.local.md` and
-the key files are gitignored and stay out. If the repository is on GitHub, it should be
-private, because profile.md is candid.
+If this copy is a git repository, offer to commit the new files, which keeps their
+history on this machine. `contact.local.md` and the key files are gitignored and stay
+out. If git has no name and email yet, the commit fails asking for them: set them for
+this folder only (`git config user.name`, `git config user.email`) from what the user
+gives you, or skip the commit. Leave pushing to the user. A copy cloned from the template
+has the public template as `origin`, which refuses a push, and nothing in it leaves the
+machine. To back it up, or use it on a second machine, point them to the README's
+"Backing up, and a second machine", which pushes it to a private repository of their
+own: private, because profile.md is candid.
 
 Then offer to run the first `/job-scan`.

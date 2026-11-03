@@ -46,13 +46,28 @@ def test_a_setup_draft_reads_as_a_draft(tmp_path):
     assert line.split()[0] == "DRAFT", line
 
 
-def test_a_uv_fix_keeps_the_extras_already_installed(monkeypatch):
+def test_a_uv_fix_keeps_the_extra_already_installed(monkeypatch):
     real = importlib.util.find_spec
+    installed = {"jobspy": True}
     monkeypatch.setattr(doctor.importlib.util, "find_spec",
-                        lambda name, *a: object() if name == "jobspy" else
-                        (None if name == "pypdf" else real(name, *a)))
-    assert doctor.uv_sync("pdf") == "uv sync --extra pdf --extra scraped"
+                        lambda name, *a: (object() if installed[name] else None)
+                        if name in installed else real(name, *a))
     assert doctor.uv_sync() == "uv sync --extra scraped"
+    installed["jobspy"] = False
+    assert doctor.uv_sync() == "uv sync"
+    assert doctor.uv_sync("scraped") == "uv sync --extra scraped"
+
+
+def test_the_checks_say_which_check_made_each_row(tmp_path, monkeypatch):
+    fresh_copy(tmp_path)
+    monkeypatch.setattr(doctor, "ROOT", str(tmp_path))
+    rows = doctor.run_checks(page=False)
+    groups = [r["group"] for r in rows]
+    assert groups == sorted(groups, key=["python", "latex", "profile", "sources"].index)
+    assert {"python", "latex", "profile"} <= set(groups)
+    master = next(r for r in rows if r["what"] == "content/master.md")
+    assert master["group"] == "profile" and master["status"] == "MISSING"
+    assert doctor.run_checks(page=False) == rows   # a second run starts clean
 
 
 def test_the_draft_marker_matches_the_setup_skill():

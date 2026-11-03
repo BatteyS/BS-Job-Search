@@ -1,0 +1,22 @@
+{
+  "greeting": "Dear Clinical Informatics Team,",
+  "date": "October 28, 2026",
+  "paragraphs": [
+    {"text": "I am applying for the Clinical Informatics Nurse role on your inpatient documentation team. I am a cardiovascular ICU nurse, and the projects I have volunteered for on my unit kept turning out to be about systems and teaching. That is where I want my next role to sit.",
+     "sources": [{"story": "the projects I volunteered for kept turning out to be about systems and teaching"},
+                 {"posting": "Clinical Informatics Nurse, Inpatient Documentation"}]},
+    {"text": "When my unit piloted continuous capnography, nobody owned the charting. I wrote the checklist, trained 45 nurses on both shifts, and walked the unit at night to see where it broke down. Charting compliance rose from 71% to 98% in four months, and the hospital is now rolling the checklist out to its second ICU.",
+     "sources": [{"master": "Led a 4-month pilot of continuous capnography"},
+                 {"story": "When our unit piloted continuous capnography"}]},
+    {"text": "During our 2023 Epic upgrade I was a super-user: I wrote 12 tip sheets on flowsheet and order-set changes, supported go-live on three units, and logged 140 issues to the build team. Most of what nurses reported that week was about where things had moved, not whether they worked, and it is why I started an informatics certificate. Translating inpatient nursing workflows into Epic build requests, and supporting go-lives at the elbow, is the work I want to do every week.",
+     "sources": [{"master": "Epic super-user for the hospital's 2023 upgrade"},
+                 {"story": "During the 2023 Epic upgrade I was a super-user"},
+                 {"posting": "nursing workflows into Epic build requests"},
+                 {"posting": "Support go-lives at the elbow"}]},
+    {"text": "Training nurses is the part of every project I have enjoyed most. I have precepted 8 nurses through ICU orientation, and all 8 finished on schedule. I would welcome the chance to bring that to your go-lives and classes.",
+     "sources": [{"story": "training nurses is the part of every project I have enjoyed most"},
+                 {"master": "Precepted 8 new-graduate and transfer nurses"},
+                 {"posting": "Train nurses and super-users on new documentation"}]}
+  ],
+  "closing": "Sincerely,"
+}

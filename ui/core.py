@@ -2,14 +2,15 @@
 
 server.py puts routes over these; the tests call them directly. Everything
 here reads this copy's own files and runs this copy's own scripts, and nothing
-else: the file reads are limited to the folders named below, and the only
-commands are the ones in COMMANDS, with their arguments checked.
+else: the file reads are limited to the folders named below, the only writes
+are a digest's boxes, feedback.md's verdicts and the two key files, and the
+only commands are the ones in COMMANDS, with their arguments checked.
 
 The page does what a person does between skills: reads a digest and marks it,
-finds what was filed under Applications/, runs the checks. Scoring, choosing
-bullets, and writing letters stay in Claude Code, where the skills are. The
-run registry is written so a later version can stream a skill the same way it
-streams a script.
+finds what was filed under Applications/, runs the checks, and shows how far
+setup has got. Scoring, choosing bullets, and writing letters stay in Claude
+Code, where the skills are; claude_run.py streams those runs the same way the
+registry here streams a script.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ if SCRIPTS not in sys.path:
     sys.path.insert(0, SCRIPTS)
 
 import digest_applies  # noqa: E402
+import doctor  # noqa: E402
 
 DIGESTS = digest_applies.DIGESTS
 APPS = digest_applies.APPS
@@ -229,6 +231,147 @@ def read_profile_file(rel: str) -> str:
     return open(os.path.join(ROOT, rel), encoding="utf-8").read()
 
 
+# -------------------------------------------------------------------- setup
+
+# The six files /setup writes, in its order, and whether the scan and the
+# resumes need each. story.md is the one they do not: only letters read it.
+SETUP_FILES = [
+    ("content/contact.local.md", "Your name, email and links", True),
+    ("content/master.md", "Every resume fact", True),
+    ("content/story.md", "Stories for cover letters", False),
+    ("profile/profile.md", "How a role is judged for you", True),
+    ("profile/clusters.yaml", "What to look for", True),
+    ("profile/filters.yaml", "Where, how much, and which sources", True),
+]
+
+
+# The resume /setup builds from every bullet in master.md, to check it (Step 3e).
+TEST_RESUME = "Resume/pdf/editing_cv.pdf"
+
+
+def setup_state() -> dict:
+    """How far setup has got: each file it writes is missing, a draft (written
+    by /setup, not yet reviewed), or done. `ready` once every needed file is
+    done and no draft is left; until then the page opens on its Setup tab.
+    `test_resume` once setup has built one. Fast, because the page asks on
+    every load: it reads only for the draft line."""
+    files = []
+    for rel, about, needed in SETUP_FILES:
+        path = os.path.join(ROOT, rel)
+        if not os.path.isfile(path):
+            state = "missing"
+        else:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                state = "draft" if doctor.DRAFT in fh.read() else "done"
+        files.append({"path": rel, "about": about, "needed": needed, "state": state})
+    ready = all(f["state"] == "done" or (f["state"] == "missing" and not f["needed"])
+                for f in files)
+    resume = os.path.join(ROOT, TEST_RESUME)
+    test = ({"path": TEST_RESUME, "modified": int(os.path.getmtime(resume))}
+            if os.path.isfile(resume) else None)
+    return {"files": files, "ready": ready, "test_resume": test}
+
+
+def test_resume() -> str:
+    """The test resume's path, for the Setup tab to open."""
+    path = os.path.join(ROOT, TEST_RESUME)
+    if not os.path.isfile(path):
+        raise FileNotFoundError("setup has not built the test resume yet")
+    return path
+
+
+# doctor.py keeps its rows in one list, so two checks at once would mix them.
+_checking = threading.Lock()
+
+
+def setup_checks() -> dict:
+    """doctor.py's checks as rows, for the Setup tab, and where each key source
+    stands. Claude Code is left out (the tab asks claude_run itself), and so are
+    doctor's rows for the keys, which `keys` replaces with a form."""
+    with _checking:
+        rows = doctor.run_checks(page=False)
+    keyed = {f"{label} key" for label, *_ in doctor.KEYS.values()}
+    return {"checks": [r for r in rows if r["what"] not in keyed], "keys": key_status()}
+
+
+def _filters() -> dict | None:
+    path = os.path.join(ROOT, "profile", "filters.yaml")
+    if not os.path.isfile(path):
+        return None
+    import yaml
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return yaml.safe_load(fh) or {}
+    except (OSError, yaml.YAMLError):
+        return None
+
+
+def key_status() -> list[dict]:
+    """Each source that needs a key: whether one is saved, and whether
+    filters.yaml turns the source on (None until filters.yaml can be read; no
+    `sources` block means the company boards only). Never the values."""
+    filters = _filters()
+    sources = (filters or {}).get("sources")
+    out = []
+    for name, (label, signup, fields, *_) in doctor.KEYS.items():
+        on = None if filters is None else (
+            bool(sources.get(name)) if isinstance(sources, dict) else False)
+        out.append({"source": name, "label": label, "signup": "https://" + signup,
+                    "fields": list(fields), "file": f"sources/{name}.local.yaml",
+                    "saved": doctor.key_problem(name) is None, "on": on})
+    return out
+
+
+# A key or an ID as a source issues it: one run of visible characters.
+KEY_VALUE = re.compile(r"[^\s\x00-\x1f\x7f]{1,300}")
+
+
+def save_keys(name: str, values: dict) -> str:
+    """Write one source's key file, sources/<name>.local.yaml, from what was
+    typed into the Setup tab, and return its path. Only the key lines change,
+    so an existing file keeps its comments and other settings; a new one starts
+    from the source's example. The values are never returned or logged."""
+    if name not in doctor.KEYS:
+        raise ValueError(f"no source named {name!r} takes a key")
+    label, _, fields, *_ = doctor.KEYS[name]
+    if not isinstance(values, dict) or set(values) != set(fields):
+        raise ValueError(f"{label} takes {' and '.join(fields)}")
+    clean = {}
+    for field in fields:
+        value = values[field].strip() if isinstance(values[field], str) else ""
+        if not KEY_VALUE.fullmatch(value):
+            raise ValueError(f"{field} must be filled in, with no spaces or line breaks")
+        if value.lower() in doctor.PLACEHOLDERS:
+            raise ValueError(f"{field} is still the example's placeholder")
+        if field == "email" and not re.fullmatch(r"[^@]+@[^@]+\.[^@]+", value):
+            raise ValueError("email must be the address the key was registered under")
+        clean[field] = value
+
+    rel = f"sources/{name}.local.yaml"
+    path = os.path.join(ROOT, rel)
+    text = ""
+    for src in (path, os.path.join(ROOT, "sources", f"{name}.example.yaml")):
+        if os.path.isfile(src):
+            with open(src, encoding="utf-8") as fh:
+                text = fh.read()
+            break
+    for field, value in clean.items():
+        line = f"{field}: {json.dumps(value)}"   # a JSON string is a YAML string
+        text, n = re.subn(rf"^{field}:.*$", lambda _m: line, text, count=1, flags=re.M)
+        if not n:
+            text = (text.rstrip("\n") + "\n" if text.strip() else "") + line + "\n"
+    import yaml
+    back = yaml.safe_load(text) or {}
+    if any(back.get(f) != v for f, v in clean.items()):
+        raise ValueError(f"{rel} would not read back as typed, so nothing was saved")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    os.chmod(path, 0o600)   # an older file, copied by hand, may be readable by all
+    return rel
+
+
 # ------------------------------------------------------------------ the port
 
 def probe_port(port: int, host: str = "127.0.0.1") -> tuple[str, str]:
@@ -253,6 +396,31 @@ def probe_port(port: int, host: str = "127.0.0.1") -> tuple[str, str]:
     root = str(info.get("root") or "")
     same = bool(root) and os.path.realpath(root) == os.path.realpath(ROOT)
     return ("this" if same else "another"), root
+
+
+# -------------------------------------------------------------- who may ask
+
+# The names this page answers to. It listens on 127.0.0.1 only, but a browser
+# sends the name its page was loaded under: a site that points its own name at
+# 127.0.0.1 (DNS rebinding) would otherwise read this page as its own.
+LOCAL_NAMES = ("127.0.0.1", "localhost", "[::1]")
+
+
+def refusal(host: str | None, origin: str | None) -> str | None:
+    """Why the page will not answer a request, or None when it will.
+
+    It answers only requests addressed to this machine by name, which stops DNS
+    rebinding. A request that carries an Origin must also come from the page
+    itself. Browsers send one with every POST and PUT, so another site's form or
+    script cannot start a run or answer a card, although the browser lets it
+    send the request. curl and scripts send none, and are answered."""
+    host = (host or "").strip().lower()
+    name = host[:host.find("]") + 1] if host.startswith("[") else host.split(":")[0]
+    if name not in LOCAL_NAMES:
+        return f"This page answers only at 127.0.0.1 or localhost, not {host or 'no host'}."
+    if origin is not None and origin.strip().lower() != f"http://{host}":
+        return "A page on another site cannot use this one."
+    return None
 
 
 # --------------------------------------------------------------------- runs

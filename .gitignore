@@ -18,8 +18,10 @@ Resume/LaTeX/*.tex
 # Local scan state. Per-machine by design -- tracking it would conflict on
 # every pull for no benefit.
 data/last-run.json
-# The page's list of skill runs, with their Claude session ids. Per machine.
+# The page's list of skill runs, with their Claude session ids, and the plan
+# usage Claude Code last reported. Per machine.
 data/ui-runs.json
+data/ui-usage.json*
 
 # LaTeX build artifacts -- regenerated on every build
 Resume/build/
@@ -54,9 +56,14 @@ desktop.ini
 
 # Application materials: transcripts, offer letters, and prior employment
 # records are personal documents, not project source. Tracked folders would
-# also make this repo unsafe to ever push anywhere.
-Applications/
+# also make this repo unsafe to ever push anywhere. Anchored to this folder: the
+# example demos keep fictional postings in examples/<name>/demo/Applications/.
+/Applications/
 Previous Employment Records/
 
 # The desktop app's preview launcher for ui/server.py. Per machine.
 .claude/launch.json
+
+# Personal Claude Code settings for this folder: hooks, and the permissions
+# "Allow always" saves. Per machine.
+.claude/settings.local.json

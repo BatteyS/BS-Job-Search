@@ -1,0 +1,23 @@
+{
+  "variant": "chronological",
+  "experience": [
+    {"employer": "Kestrel Valley Medical Center", "role": "Registered Nurse, Cardiovascular ICU",
+     "bullets": [
+       "Epic super-user for the hospital's 2023 upgrade",
+       "Led a 4-month pilot of continuous capnography",
+       "Unit practice council member since 2023",
+       "Co-designed a pre-notification handoff script",
+       "Precepted 8 new-graduate and transfer nurses",
+       "Relief charge nurse one to two shifts a week"
+     ]},
+    {"employer": "Delta Ridge Hospital", "role": "Registered Nurse, Cardiac Telemetry",
+     "bullets": [
+       "Built the unit's shift staffing grid in Excel",
+       "Falls-prevention team member"
+     ]}
+  ],
+  "skills": ["Systems:", "Clinical:", "Teaching:"],
+  "sections": {
+    "Licenses & Certifications": ["Registered Nurse, California Board", "CCRN (Adult)", "ACLS and BLS"]
+  }
+}

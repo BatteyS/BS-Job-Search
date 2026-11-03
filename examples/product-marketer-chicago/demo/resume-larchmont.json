@@ -1,0 +1,30 @@
+{
+  "variant": "chronological",
+  "experience": [
+    {"employer": "Brightline Analytics", "role": "Senior Product Marketing Manager",
+     "bullets": [
+       "Co-led the 2024 pricing and packaging redesign",
+       "Built the company's first win/loss program",
+       "Keeps a competitive pricing tracker",
+       "Ran 20 customer interviews on the reporting product",
+       "Repositioned the core platform from dashboards to decision automation",
+       "Writes and maintains battlecards for 5 competitors"
+     ]},
+    {"employer": "Brightline Analytics", "role": "Product Marketing Manager",
+     "bullets": [
+       "Wrote the company's first messaging framework",
+       "trial-to-paid conversion rose from 9% to 13%"
+     ]},
+    {"employer": "Cobalt Freight Systems", "role": "Product Marketing Manager",
+     "bullets": [
+       "Ran the company's first pricing survey",
+       "Launched the carrier mobile app to 3,000 trucking companies"
+     ]},
+    {"employer": "Harbor & Pine", "role": "Marketing Strategist",
+     "bullets": ["Led messaging and market research projects for 14 B2B clients"]}
+  ],
+  "skills": ["Product marketing:", "Tools:"],
+  "sections": {
+    "Speaking & Writing": ["Pricing is a positioning decision", "Win/loss interviews sales will actually read"]
+  }
+}

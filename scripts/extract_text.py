@@ -4,9 +4,9 @@
     python scripts/extract_text.py resume.docx --out resume.txt
 
 A .docx needs nothing extra: it is a zip of XML, read with the standard library,
-and bulleted paragraphs keep a leading "- ". A PDF needs the pypdf package
-(`uv sync --extra pdf`, or `pip install pypdf`). Plain text and Markdown pass
-through. An old binary .doc cannot be read; save it as .docx or PDF first.
+and bulleted paragraphs keep a leading "- ". A PDF needs the pypdf package,
+which uv installs with the rest (or `pip install pypdf`). Plain text and
+Markdown pass through. An old binary .doc cannot be read; save it as .docx or PDF first.
 
 Layout does not survive. Columns, tables, and text boxes come out in reading
 order at best, so the transcription reads this alongside the original, not

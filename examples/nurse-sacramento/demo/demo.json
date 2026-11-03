@@ -1,0 +1,17 @@
+{
+  "who": "Jordan Rivera",
+  "about": "a cardiovascular ICU nurse in Sacramento, moving toward clinical informatics",
+  "resumes": [
+    {"company": "Sierra Crest Health",
+     "title": "Clinical Informatics Nurse, Inpatient Documentation",
+     "manifest": "resume-sierra-crest.json"},
+    {"company": "Capitol Valley Hospital",
+     "title": "Clinical Nurse Educator, Cardiovascular Services",
+     "manifest": "resume-capitol-valley.json"}
+  ],
+  "letters": [
+    {"company": "Sierra Crest Health",
+     "title": "Clinical Informatics Nurse, Inpatient Documentation",
+     "letter": "letter-sierra-crest.json"}
+  ]
+}

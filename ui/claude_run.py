@@ -13,6 +13,9 @@ always shows its exact text first, whatever the prompt said. A turn that ends
 with a question in plain text leaves the run idle, and the page's reply box sends
 the answer into the same session.
 
+Each run gets the model and effort router.py picks for it, and passes the plan
+usage every request reports on to usage.py, with the run's own tokens and cost.
+
 Only find_claude() and the pure helpers run without the SDK installed; ClaudeRun
 imports it when a run starts, so the page and the tests work without it.
 """
@@ -23,6 +26,7 @@ import asyncio
 import glob
 import json
 import os
+import platform
 import re
 import shutil
 import sys
@@ -32,6 +36,8 @@ import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import core  # noqa: E402
+import router  # noqa: E402
+import usage  # noqa: E402
 
 ROOT = core.ROOT
 INDEX = os.path.join(ROOT, "data", "ui-runs.json")
@@ -42,12 +48,24 @@ INDEX = os.path.join(ROOT, "data", "ui-runs.json")
 GROUND_TRUTH = ("profile/profile.md", "content/master.md", "content/story.md")
 EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 
+# What to do when the SDK is missing. Only a Python without uv can lack it.
+SDK_MISSING = ("the Agent SDK is not installed: start the page with uv run ui/server.py, "
+               "or pip install claude-agent-sdk")
+
 # Where a Claude Code binary may be, after BS_CLAUDE_BIN and PATH.
-USUAL_PATHS = ("~/.claude/local/claude", "~/.local/bin/claude", "~/.npm-global/bin/claude",
+USUAL_PATHS = ("~/.claude/local/claude", "~/.local/bin/claude", "~/.local/bin/claude.exe",
+               "~/.npm-global/bin/claude",
                "/usr/local/bin/claude", "/opt/homebrew/bin/claude",
                "~/node_modules/.bin/claude", "~/.yarn/bin/claude")
 # The Claude desktop app keeps its own copy, one folder per version.
 DESKTOP_GLOB = "~/Library/Application Support/Claude/claude-code/*/*/claude.app/Contents/MacOS/claude"
+# How find_claude() names the copy inside the Agent SDK, the last resort.
+BUNDLED = "the Agent SDK's own copy"
+
+# Claude Code's own installer, by system (code.claude.com/docs/en/setup), for
+# the page to show when it finds no Claude Code of the user's own.
+INSTALL = {"Windows": "irm https://claude.ai/install.ps1 | iex"}
+INSTALL_UNIX = "curl -fsSL https://claude.ai/install.sh | bash"
 
 # name -> label, what it does, the slash command, what it needs from the page:
 # None, "date" (the open digest, optional) or "text" (a URL or pasted posting).
@@ -97,23 +115,31 @@ def find_claude(env: dict | None = None, which=shutil.which,
         import claude_agent_sdk
         bundled = os.path.join(os.path.dirname(claude_agent_sdk.__file__), "_bundled", "claude")
         if exists(bundled):
-            return bundled, "the Agent SDK's own copy"
+            return bundled, BUNDLED
     except ImportError:
         pass
     return None, ("no Claude Code binary found: install Claude Code, or set BS_CLAUDE_BIN "
                   "to the binary")
 
 
+def install_command(system: str | None = None) -> str:
+    return INSTALL.get(system or platform.system(), INSTALL_UNIX)
+
+
 def claude_status() -> dict:
-    """What the page shows beside the skill buttons."""
+    """What the page shows beside the skill buttons and on its Setup tab. When
+    Claude Code is not ready, `install` or `login` holds the one command to run.
+    Only the SDK's own copy, not logged in, asks for an install rather than a
+    login: the page is a front end to the user's own Claude Code."""
     try:
         import claude_agent_sdk  # noqa: F401
     except ImportError:
         return {"available": False, "cli": None, "version": None,
-                "reason": "the Agent SDK is not installed: uv sync --extra ui"}
+                "reason": SDK_MISSING}
     cli, how = find_claude()
     if not cli:
-        return {"available": False, "cli": None, "version": None, "reason": how}
+        return {"available": False, "cli": None, "version": None, "reason": how,
+                "install": install_command()}
     import subprocess
     version, logged_in = "", None
     try:
@@ -124,9 +150,16 @@ def claude_status() -> dict:
         logged_in = bool(json.loads(out.stdout).get("loggedIn"))
     except (OSError, subprocess.TimeoutExpired, ValueError, AttributeError):
         pass
-    reason = "" if logged_in is not False else _explain("Not logged in", cli)
-    return {"available": logged_in is not False, "cli": cli, "how": how,
-            "version": version, "logged_in": logged_in, "reason": reason}
+    out = {"available": logged_in is not False, "cli": cli, "how": how,
+           "version": version, "logged_in": logged_in, "reason": ""}
+    if logged_in is False and how == BUNDLED:
+        out["install"] = install_command()
+        out["reason"] = (f"Claude Code is not installed. Install it in a terminal with "
+                         f"{out['install']}  then log in with: claude auth login")
+    elif logged_in is False:
+        out["login"] = login_command(cli)
+        out["reason"] = _explain("Not logged in", cli)
+    return out
 
 
 def child_env(env: dict | None = None) -> dict:
@@ -142,8 +175,12 @@ def child_env(env: dict | None = None) -> dict:
 
 # ------------------------------------------------------------------ prompts
 
-def skills() -> list[dict]:
-    return [{"name": k, "label": v[0], "about": v[1], "needs": v[3]} for k, v in SKILLS.items()]
+def skills(limits: dict | None = None) -> list[dict]:
+    """The skill buttons, each with the route a run started now would get, at
+    `limits` (the latest plan usage when not given)."""
+    limits = usage.windows() if limits is None else limits
+    return [{"name": k, "label": v[0], "about": v[1], "needs": v[3],
+             "route": router.route(k, {}, limits)} for k, v in SKILLS.items()]
 
 
 def build_prompt(name: str, params: dict | None = None) -> str:
@@ -225,12 +262,21 @@ def events_from(msg) -> list[dict]:
                                 "ok": not bool(block.is_error),
                                 "excerpt": _excerpt(block.content)})
     elif kind == "ResultMessage":
+        # usage is this turn's; total_cost_usd is the session's so far.
+        u = getattr(msg, "usage", None) or {}
         out.append({"kind": "turn_end", "subtype": getattr(msg, "subtype", ""),
                     "is_error": bool(getattr(msg, "is_error", False)),
                     "num_turns": getattr(msg, "num_turns", None),
                     "cost": getattr(msg, "total_cost_usd", None),
+                    "tokens": sum(int(u.get(k) or 0) for k in (
+                        "input_tokens", "output_tokens", "cache_read_input_tokens",
+                        "cache_creation_input_tokens")),
                     "result": (getattr(msg, "result", "") or "")
                     if getattr(msg, "is_error", False) else ""})
+    elif kind == "RateLimitEvent":
+        info = getattr(msg, "rate_limit_info", None)
+        if info is not None:
+            out.append({"kind": "limits", "windows": usage.from_event(info)})
     return out
 
 
@@ -329,12 +375,16 @@ class ClaudeRun:
     it through answer(), say() and stop(), each of which hands work to that loop.
     """
 
-    def __init__(self, skill: str, prompt: str, cli_path: str, resume: str | None = None):
+    def __init__(self, skill: str, prompt: str, cli_path: str, resume: str | None = None,
+                 route: dict | None = None):
         self.id = uuid.uuid4().hex[:12]
         self.name = skill
         self.prompt = prompt
         self.cli_path = cli_path
         self.resume = resume
+        self.route = route or {}
+        self.tokens = 0          # this run's, summed over its turns
+        self.cost = 0.0          # at API prices: the session's figure, as of its last turn
         self.events: list[dict] = []
         self.status = "starting"
         self.pending: dict | None = None
@@ -359,7 +409,8 @@ class ClaudeRun:
     def summary(self) -> dict:
         return {"id": self.id, "name": self.name, "kind": "claude", "status": self.status,
                 "started": self.started, "session_id": self.session_id,
-                "pending": self.pending, "lines": len(self.events)}
+                "pending": self.pending, "lines": len(self.events), "route": self.route,
+                "tokens": self.tokens, "cost": self.cost}
 
     def follow(self, start: int = 0):
         """Yield (index, event) from `start`, then None once the run has ended."""
@@ -459,7 +510,9 @@ class ClaudeRun:
             self.status = status
         self._emit("status", status=status)
         index_upsert({"id": self.id, "skill": self.name, "session_id": self.session_id,
-                      "started": self.started, "status": status, "prompt": self.prompt[:200]})
+                      "started": self.started, "status": status, "prompt": self.prompt[:200],
+                      "route": self.route.get("label", ""), "tokens": self.tokens,
+                      "cost": self.cost})
 
     async def _interrupt(self) -> None:
         try:
@@ -471,7 +524,7 @@ class ClaudeRun:
         try:
             from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
         except ImportError:
-            self._emit("error", message="the Agent SDK is not installed: uv sync --extra ui")
+            self._emit("error", message=SDK_MISSING)
             self._set_status("failed")
             return
         self._loop = asyncio.get_running_loop()
@@ -479,15 +532,21 @@ class ClaudeRun:
         self._inbox = asyncio.Queue()
         if self._stopping:   # stopped before it started
             return
+        model = self.route.get("model")
         options = ClaudeAgentOptions(cwd=ROOT, cli_path=self.cli_path, permission_mode="default",
                                      can_use_tool=self._can_use_tool, env=child_env(),
-                                     resume=self.resume)
+                                     resume=self.resume, model=model,
+                                     effort=self.route.get("effort"),
+                                     # Overload only: rate limits never switch models.
+                                     fallback_model="sonnet" if model == "opus" else None)
         try:
             async with ClaudeSDKClient(options=options) as client:
                 self._client = client
                 if self._stopping:
                     return
                 self._set_status("running")
+                if self.route:
+                    self._emit("route", **self.route)
                 self._emit("user", text=self.prompt)
                 await client.query(self.prompt)
                 if not await self._drain(client):
@@ -517,7 +576,12 @@ class ClaudeRun:
             for ev in events_from(msg):
                 if ev["kind"] == "init" and ev.get("session_id"):
                     self.session_id = ev["session_id"]
+                if ev["kind"] == "limits":
+                    usage.record(ev["windows"], "run")
                 if ev["kind"] == "turn_end":
+                    self.tokens += ev.get("tokens") or 0
+                    if isinstance(ev.get("cost"), (int, float)):
+                        self.cost = float(ev["cost"])
                     if ev["is_error"]:
                         # A stopped turn ends in an error result: that is the
                         # stop working, not the run failing.
@@ -580,10 +644,43 @@ def _explain(result_text: str, cli: str | None = None) -> str:
 
 def start_skill(name: str, params: dict | None = None, resume: str | None = None,
                 prompt: str | None = None) -> ClaudeRun:
-    """A run for one skill, or a resumed session with the user's next message."""
+    """A run for one skill, or a resumed session with the user's next message,
+    on the model and effort the router picks: params may carry the Runs tab's
+    pick as `model` and `effort`."""
     cli, how = find_claude()
     if not cli:
         raise FileNotFoundError(how)
+    params = params or {}
+    chosen = router.route(name, params, usage.windows(),
+                          {"model": params.get("model"), "effort": params.get("effort")})
     if prompt is None:
         prompt = build_prompt(name, params)
-    return ClaudeRun(name, prompt, cli, resume=resume).start()
+    return ClaudeRun(name, prompt, cli, resume=resume, route=chosen).start()
+
+
+def check_usage() -> dict:
+    """Ask Claude Code's /usage for the plan's windows, and keep them. It
+    answers without calling a model, so this uses none of the plan, and it runs
+    with no settings, hooks or saved session."""
+    cli, how = find_claude()
+    if not cli:
+        raise FileNotFoundError(how)
+    from claude_agent_sdk import ClaudeAgentOptions, query
+    options = ClaudeAgentOptions(cwd=ROOT, cli_path=cli, env=child_env(), setting_sources=[],
+                                 allowed_tools=[], max_turns=1,
+                                 extra_args={"no-session-persistence": None})
+
+    async def ask() -> str:
+        text = ""
+        async for msg in query(prompt="/usage", options=options):
+            if type(msg).__name__ == "ResultMessage":
+                text = getattr(msg, "result", "") or ""
+        return text
+
+    text = asyncio.run(ask())
+    found = usage.from_usage_text(text)
+    first = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
+    if not found:
+        raise ValueError(_explain(text, cli) if "Not logged in" in text else
+                         f"/usage gave no usage windows: {first or 'no answer'}")
+    return usage.record(found, "check", note=first)

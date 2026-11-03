@@ -2,6 +2,11 @@
 # CRLF and each machine sees the whole repo as modified.
 * text=auto
 
+# The start files: Windows reads the .cmd one with CRLF line endings, and the
+# Mac's shell needs LF in the .command one, whichever system checks them out.
+*.cmd text eol=crlf
+*.command text eol=lf
+
 # Never touch these.
 *.pdf binary
 *.png binary

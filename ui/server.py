@@ -1,14 +1,15 @@
 """A local page over this workflow: read and mark digests, find what was filed
 under Applications/, run the checks, and read your profile.
 
-    uv run python ui/server.py            # opens http://127.0.0.1:8765
-    uv run python ui/server.py --port 8800 --no-open
+    uv run ui/server.py                   # opens http://127.0.0.1:8765
+    uv run ui/server.py --port 8800 --no-open
 
 Run it again while the page is up and it opens the running page instead.
 
 It listens on 127.0.0.1 only and has no login, because it reads your resume
 facts and your keys' presence: anyone who can reach it can read them. Leave it
-that way. Needs the `ui` extra: `uv sync --extra ui` (name every extra you use).
+that way. uv installs its packages with the rest; without uv,
+`pip install fastapi uvicorn claude-agent-sdk`.
 
 The routes are thin. What they do is in core.py, which the tests cover.
 """
@@ -29,14 +30,35 @@ try:
     from fastapi import FastAPI, HTTPException
     from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 except ImportError:
-    raise SystemExit("The page needs the `ui` extra: uv sync --extra ui "
-                     "(add --extra pdf and --extra scraped if you use them)")
+    raise SystemExit("The page's packages are not installed. Start it with uv run ui/server.py, "
+                     "which installs them, or: pip install fastapi uvicorn claude-agent-sdk")
 
 import core  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 app = FastAPI(title="BS Job Search", docs_url=None, redoc_url=None)
 runs = core.Runs()
+
+
+class OnlyThisPage:
+    """Refuses what core.refusal() refuses, before any route sees it. Plain
+    ASGI rather than a FastAPI middleware, so the runs' streams pass through
+    untouched."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            headers = {k.decode("latin-1"): v.decode("latin-1") for k, v in scope["headers"]}
+            why = core.refusal(headers.get("host"), headers.get("origin"))
+            if why:
+                await PlainTextResponse(why, status_code=403)(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(OnlyThisPage)
 
 
 def _or_404(fn, *args, **kwargs):
@@ -139,6 +161,34 @@ def profile_file(rel: str):
     return PlainTextResponse(_or_404(core.read_profile_file, rel))
 
 
+# ------------------------------------------------------------------ setup
+
+@app.get("/api/setup")
+def setup():
+    """How far setup has got. Fast: the page asks on every load, to pick its
+    first tab."""
+    return core.setup_state()
+
+
+@app.get("/api/setup/checks")
+def setup_checks():
+    return core.setup_checks()
+
+
+@app.get("/api/setup/test-resume")
+def setup_test_resume():
+    """The resume setup builds from every bullet, to open beside the interview.
+    Not cached: setup builds it again after each correction."""
+    return FileResponse(_or_404(core.test_resume), media_type="application/pdf",
+                        headers={"Content-Disposition": "inline", **FRESH})
+
+
+@app.put("/api/keys/{name}")
+def save_keys(name: str, values: dict):
+    """Saves one source's key file. The answer names the file, never the values."""
+    return {"saved": _or_404(core.save_keys, name, values)}
+
+
 # ------------------------------------------------------------------- runs
 
 @app.get("/api/commands")
@@ -229,6 +279,24 @@ def past_runs():
     return list(reversed(_claude().load_index()))
 
 
+@app.get("/api/usage")
+def usage_now():
+    """The plan's usage windows as last reported, and the page's runs' totals."""
+    cr = _claude()
+    return cr.usage.summary(cr.load_index())
+
+
+@app.post("/api/usage/check")
+def usage_check():
+    """Ask Claude Code's /usage now. It calls no model, so it uses none of the plan."""
+    cr = _claude()
+    try:
+        cr.check_usage()
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(503, str(exc))
+    return cr.usage.summary(cr.load_index())
+
+
 @app.post("/api/claude/resume")
 def resume_run(body: dict):
     cr = _claude()
@@ -239,7 +307,8 @@ def resume_run(body: dict):
         raise HTTPException(404, "no past run with that session")
     if not text:
         raise HTTPException(400, "say what to do next")
-    return _start(entry["skill"], {}, resume=session_id, prompt=text)
+    pick = {k: body[k] for k in ("model", "effort") if body.get(k)}
+    return _start(entry["skill"], pick, resume=session_id, prompt=text)
 
 
 def _claude_run(run_id: str):

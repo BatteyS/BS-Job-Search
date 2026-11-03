@@ -723,6 +723,11 @@ def find_entry(entries: list[Entry], section: str, employer: str, role: str) -> 
             if e.section == section
             and employer.lower() in e.employer.lower()
             and (not role or role.lower() in e.role.lower())]
+    # A promotion leaves one title inside the other ("Product Marketing Manager"
+    # in "Senior Product Marketing Manager"); an exact title picks the earlier role.
+    exact = [e for e in hits if role and e.role.lower() == role.lower()]
+    if len(hits) > 1 and len(exact) == 1:
+        hits = exact
     if len(hits) != 1:
         where = "; ".join(f"{e.employer} | {e.role}" for e in hits) or "nothing"
         raise SystemExit(

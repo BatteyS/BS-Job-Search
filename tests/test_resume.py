@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from helpers import example, needs_latex, run
-from build_resume import (check_dates, creates_gap, master_format, normalize_sections,
-                          parse_master, parse_span)
+from build_resume import (check_dates, creates_gap, find_entry, master_format,
+                          normalize_sections, parse_master, parse_span)
 
 EXAMPLES = {"nurse-sacramento": (2, 1), "product-marketer-chicago": (4, 2)}
 
@@ -25,6 +25,18 @@ def test_examples_parse_as_text_with_readable_dates(name):
     assert len(roles) == EXAMPLES[name][0]
     assert master_format(path, front)[0] == "text"
     check_dates(entries)
+
+
+def test_an_exact_title_picks_the_role_a_promotion_contains():
+    """"Product Marketing Manager" is inside "Senior Product Marketing Manager",
+    so a substring match alone could never pick the earlier role."""
+    _, entries = entries_of(example("product-marketer-chicago", "master.md"))
+    junior = find_entry(entries, "Experience", "Brightline", "Product Marketing Manager")
+    assert junior.role == "Product Marketing Manager" and "2019" in junior.dates
+    senior = find_entry(entries, "Experience", "Brightline", "Senior Product")
+    assert senior.role == "Senior Product Marketing Manager"
+    with pytest.raises(SystemExit, match="matched 2 roles"):
+        find_entry(entries, "Experience", "Brightline", "Marketing")
 
 
 def test_date_spans():

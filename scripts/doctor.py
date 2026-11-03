@@ -37,14 +37,16 @@ FIX = {
         "Darwin": "install BasicTeX (brew install --cask basictex, or the installer at "
                   "tug.org/mactex), open a new terminal, then run: sudo tlmgr install "
                   "enumitem titlesec newtx fontaxes xstring kastrup tex-gyre",
-        "Windows": "install MiKTeX from miktex.org/download; it fetches missing packages "
-                   "the first time a resume builds",
+        "Windows": "install MiKTeX from miktex.org/download, and set it to install missing "
+                   "packages on the fly when its installer asks (or later, in MiKTeX Console's "
+                   "Settings): the first resume build then fetches them without stopping to ask",
         "Linux": "sudo apt install texlive-latex-recommended texlive-latex-extra "
                  "texlive-fonts-extra (or your distribution's equivalent)",
     },
     "latex_packages": {
         "Darwin": "sudo tlmgr install enumitem titlesec newtx fontaxes xstring kastrup tex-gyre",
-        "Windows": "MiKTeX installs them on the first build; or add them in MiKTeX Console",
+        "Windows": "MiKTeX installs them on the first build when it is set to install missing "
+                   "packages on the fly (MiKTeX Console, Settings); or add them there by hand",
         "Linux": "sudo apt install texlive-latex-extra texlive-fonts-extra",
     },
 }
@@ -68,8 +70,9 @@ def rel(p: str) -> str:
     return os.path.relpath(p, ROOT)
 
 
-# pyproject.toml's optional extras, by the module each one installs.
-EXTRAS = {"pdf": "pypdf", "scraped": "jobspy"}
+# pyproject.toml's one optional extra, by the module it installs. Everything
+# else, the page included, is a dependency that any `uv sync` keeps.
+EXTRAS = {"scraped": "jobspy"}
 
 
 def uv_sync(*extras: str) -> str:
@@ -108,7 +111,7 @@ def check_python() -> None:
     else:
         report("optional", "Python package pypdf",
                "only for reading a PDF resume with scripts/extract_text.py; a .docx works without it",
-               f"{uv_sync('pdf')}   or: pip install pypdf")
+               f"{uv_sync()}   or: pip install pypdf")
 
 
 # ------------------------------------------------------------------ latex
@@ -243,6 +246,19 @@ def check_profile() -> dict:
 # ---------------------------------------------------------------- sources
 
 
+# The sources that need a key, each kept in a gitignored file,
+# sources/<name>.local.yaml: name -> (label, where to register, the file's
+# fields, the environment variables that win over it, what to paste). The
+# page's Setup tab writes these files too.
+KEYS = {
+    "adzuna": ("Adzuna", "developer.adzuna.com/signup", ("app_id", "app_key"),
+               ("ADZUNA_APP_ID", "ADZUNA_APP_KEY"), "your app ID and key"),
+    "usajobs": ("USAJOBS", "developer.usajobs.gov/APIRequest", ("email", "api_key"),
+                ("USAJOBS_EMAIL", "USAJOBS_API_KEY"),
+                "your key and the email you registered with"),
+}
+
+
 def _creds(path: str, keys: tuple[str, ...], env: tuple[str, ...]) -> str | None:
     """None if usable credentials exist, else what is wrong. Values never print."""
     if all(os.environ.get(k) for k in env):
@@ -253,6 +269,16 @@ def _creds(path: str, keys: tuple[str, ...], env: tuple[str, ...]) -> str | None
     c = yaml.safe_load(open(path, encoding="utf-8")) or {}
     bad = [k for k in keys if str(c.get(k, "")).strip().lower() in PLACEHOLDERS]
     return f"{rel(path)} still has the example's {', '.join(bad)}" if bad else None
+
+
+def key_problem(name: str) -> str | None:
+    """None if a KEYS source's credentials are usable, else what is wrong."""
+    _, _, fields, env, _ = KEYS[name]
+    return _creds(os.path.join(ROOT, f"sources/{name}.local.yaml"), fields, env)
+
+
+EMPLOYERS = ("/setup adds the employers you most want to work for; or add them yourself "
+             "with scripts/detect_ats.py")
 
 
 def check_sources(filters: dict) -> None:
@@ -269,30 +295,23 @@ def check_sources(filters: dict) -> None:
             report("ok" if n else "optional", "company boards",
                    f"{n} in {rel(companies)}" if n else
                    "none listed yet; the aggregators still search",
-                   "" if n else "add target employers with scripts/detect_ats.py")
+                   "" if n else EMPLOYERS)
         else:
-            report("optional", "company boards", f"no {rel(companies)}",
-                   "add target employers with scripts/detect_ats.py")
+            report("optional", "company boards", f"no {rel(companies)}", EMPLOYERS)
 
-    def key_fix(name: str, signup: str, what: str) -> str:
+    def key_fix(name: str) -> str:
+        _, signup, _, _, what = KEYS[name]
         local = f"sources/{name}.local.yaml"
         step = (f"open {local} and paste {what} into it"
                 if os.path.exists(os.path.join(ROOT, local)) else
                 f"copy sources/{name}.example.yaml to {local} and paste {what} into it")
-        return f"register free at {signup}, then {step}"
+        return f"register free at {signup}, then save it in the page's Setup tab, or {step}"
 
-    if "adzuna" in on:
-        why = _creds(os.path.join(ROOT, "sources/adzuna.local.yaml"),
-                     ("app_id", "app_key"), ("ADZUNA_APP_ID", "ADZUNA_APP_KEY"))
-        report("MISSING" if why else "ok", "Adzuna key", why or "",
-               key_fix("adzuna", "developer.adzuna.com/signup", "your app ID and key")
-               if why else "")
-    if "usajobs" in on:
-        why = _creds(os.path.join(ROOT, "sources/usajobs.local.yaml"),
-                     ("email", "api_key"), ("USAJOBS_EMAIL", "USAJOBS_API_KEY"))
-        report("MISSING" if why else "ok", "USAJOBS key", why or "",
-               key_fix("usajobs", "developer.usajobs.gov/APIRequest",
-                       "your key and the email you registered with") if why else "")
+    for name, (label, *_) in KEYS.items():
+        if name in on:
+            why = key_problem(name)
+            report("MISSING" if why else "ok", f"{label} key", why or "",
+                   key_fix(name) if why else "")
 
     scraped = sorted(on & {"indeed", "linkedin", "glassdoor", "ziprecruiter"})
     if scraped:
@@ -314,10 +333,15 @@ def check_sources(filters: dict) -> None:
 
 
 def check_page() -> None:
-    """The local page is optional, so this says something only when its extra
-    is installed, and never holds back "Ready.": the page's other tabs work
-    without Claude Code."""
-    if not importlib.util.find_spec("fastapi"):
+    """The local page. Never holds back "Ready.": the scripts work without the
+    page, and the page's other tabs without Claude Code."""
+    if not os.path.isfile(os.path.join(ROOT, "ui", "claude_run.py")):
+        return   # a copy without the page
+    missing = [m for m in ("fastapi", "uvicorn", "claude_agent_sdk")
+               if not importlib.util.find_spec(m)]
+    if missing:
+        report("optional", "Python packages for the page", f"{', '.join(missing)} not installed",
+               f"{uv_sync()}   or: pip install fastapi uvicorn claude-agent-sdk")
         return
     sys.path.insert(0, os.path.join(ROOT, "ui"))
     import claude_run
@@ -330,21 +354,40 @@ def check_page() -> None:
                "without it, and BS_CLAUDE_BIN names a different binary")
 
 
+def run_checks(page: bool = True) -> list[dict]:
+    """Every check, in order, as {group, status, what, detail, fix}. The group
+    is the check that made the row: python, latex, profile, sources, or page.
+    The page's Setup tab reads these, and asks Claude Code's state itself."""
+    results.clear()
+    rows: list[dict] = []
+
+    def run(group: str, check, *args):
+        start = len(results)
+        out = check(*args)
+        rows.extend({"group": group, "status": s, "what": w, "detail": d, "fix": f}
+                    for s, w, d, f in results[start:])
+        return out
+
+    run("python", check_python)
+    run("latex", check_latex)
+    filters = run("profile", check_profile)
+    run("sources", check_sources, filters)
+    if page:
+        run("page", check_page)
+    return rows
+
+
 def main() -> int:
     print(f"Checking {ROOT} ({OS})\n")
-    check_python()
-    check_latex()
-    filters = check_profile()
-    check_sources(filters)
-    check_page()
+    rows = run_checks()
 
-    width = max(len(w) for _, w, _, _ in results)
-    for status, what, detail, fix in results:
-        print(f"  {status:8} {what:<{width}}  {detail}".rstrip())
-        if fix and status != "ok":
-            print(f"  {'':8} {'':<{width}}  fix: {fix}")
+    width = max(len(r["what"]) for r in rows)
+    for r in rows:
+        print(f"  {r['status']:8} {r['what']:<{width}}  {r['detail']}".rstrip())
+        if r["fix"] and r["status"] != "ok":
+            print(f"  {'':8} {'':<{width}}  fix: {r['fix']}")
     # A draft holds back "Ready." too: until it is reviewed, it is not ground truth.
-    missing = sum(1 for s, *_ in results if s in ("MISSING", "DRAFT"))
+    missing = sum(1 for r in rows if r["status"] in ("MISSING", "DRAFT"))
     print("\n" + ("Ready." if not missing else
                   f"{missing} thing(s) to fix before everything works; see 'fix:' above."))
     return 1 if missing else 0

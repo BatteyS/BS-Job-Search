@@ -117,11 +117,14 @@ builds any resume, so a fact you add reaches every resume in the batch.
 
 ## The page
 
-`ui/server.py` serves a page on this machine only (`uv run python ui/server.py`, with the
-`ui` extra installed) for the work between skills: reading a digest and ticking its boxes,
-which it writes back into the `.md` in place; finding what was filed under
-`Applications/`; running `doctor.py` and `digest_applies.py` with the output streamed;
-and reading the profile files. It also runs the skills: `ui/claude_run.py` starts one
+`ui/server.py` serves a page on this machine only (`uv run ui/server.py`, or the
+`start.command` and `start.cmd` files that run it) for setup and the work between skills.
+Its Setup tab shows `doctor.py`'s checks, how far `/setup` has got, and a form that saves
+the API keys to their gitignored files; the page opens on it until the profile is written
+and reviewed. The rest is reading a digest and ticking its boxes, which it writes back
+into the `.md` in place; finding what was filed under `Applications/`; running
+`doctor.py` and `digest_applies.py` with the output streamed; and reading the profile
+files. It also runs the skills: `ui/claude_run.py` starts one
 through the Agent SDK driving the user's own Claude Code in this folder, so the skill,
 `CLAUDE.md` and `.claude/settings.json` are the same ones a terminal would load. Every
 prompt Claude Code would show a person, including the `ask` rule on `master.md`,
@@ -129,6 +132,25 @@ prompt Claude Code would show a person, including the `ask` rule on `master.md`,
 The rule that those files are written only after the user sees the exact text is therefore
 enforced by permissions, not by the prompt. `ui/core.py` holds the rest and has no web
 framework in it; neither needs the SDK installed, so the tests cover both without it.
+
+`ui/router.py` picks each run's model and effort from the skill, what the run is given
+(how much is marked in a digest), and how full the plan's usage windows are, and says
+why. Its rules are plain code, so routing uses none of the plan, and a run keeps its
+route for every reply, since Claude Code caches a conversation per model and effort.
+`ui/usage.py` keeps those windows, which Claude Code reports with every request a run
+makes, and between runs reads its `/usage`, which answers without calling a model.
+
+Nothing guards the page but where it listens, so one check runs before every route
+(`core.refusal`): a request must be addressed to `127.0.0.1` or `localhost`, which stops a
+site that points its own name at this machine (DNS rebinding), and one that carries an
+Origin must carry the page's own, which stops another site's form or script from starting
+a run or answering a card.
+
+`ui/build_demo.py` builds the same page as static files for each example profile, from
+its `examples/<name>/demo/` folder: it lays the example out like a copy of this repo,
+builds its resumes and letters, and saves what each route would answer there into
+`demo.js`, which the page reads instead of a server. The demos are published on the
+public repo's GitHub Pages.
 
 The tests run on every push (`.github/workflows/tests.yml`), along with the
 personal-data check.
