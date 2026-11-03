@@ -3,7 +3,7 @@
 A job scan that ranks postings against your own written profile, a resume builder that
 selects from one file of your facts, and a cover-letter writer that cites a source for
 every claim. All three run from [Claude Code](https://claude.com/claude-code). To see
-what a filled-in profile looks like, start with [`examples/`](examples/README.md).
+what a filled-in profile looks like, start with [`examples/`](examples/README.md) or ['URL'](https://batteys.github.io/BS-Job-Search/). 
 
 For how the pieces work and why, read [`ARCHITECTURE.md`](ARCHITECTURE.md), and
 `CLAUDE.md` for the working agreements every skill follows.
