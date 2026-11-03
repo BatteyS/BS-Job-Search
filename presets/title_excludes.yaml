@@ -33,6 +33,10 @@ early_career:
     - '\bchief\b(?!\s+of\s+staff\b)'
     # Allow words between the seniority marker and the noun, so this catches
     # "Staff Product Security Engineer", not just "Staff Engineer".
+    # "Staff" sits low on some ladders: at many engineering consultancies,
+    # utilities, and energy developers, "Staff Engineer" is entry level and
+    # "Senior Staff Engineer" a few years in. This pattern and `senior` below
+    # drop both, so in those fields preview what this preset drops first.
     - '\b(principal|staff|distinguished|fellow)\s+([\w&,-]+\s+){0,3}(engineer|scientist|architect|manager)\b'
     # No trailing \s -- utilities write it last ("Project Engineer, Senior").
     - '\b(senior|sr\.?)\b'

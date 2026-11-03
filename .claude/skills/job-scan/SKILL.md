@@ -119,13 +119,15 @@ already exists, append a new run section rather than overwriting it.
 **Clusters:** clinical-informatics, cardiac-critical-care
 **Scanned:** 80 boards · 6,384 postings · 33 candidates after filters · 12 scored ≥60
 
-> Mark each entry. These verdicts calibrate the next run's scoring.
+> Mark each entry `apply` or `skip — reason`; these verdicts calibrate the next run's
+> scoring. Tick `cover letter` as well on any apply that should get one.
 
 ---
 
 ### 1. Valley Health Partners — Clinical Informatics Nurse · **84** · Sacramento · $128,000
 - [ ] apply
 - [ ] skip — reason:
+- [ ] cover letter
 
 **Why:** Turns bedside workflows into Epic build requirements across 12 hospitals, the
 move from bedside to informatics the profile is after.
@@ -135,6 +137,8 @@ move from bedside to informatics the profile is after.
 ```
 
 Rules:
+- **Every entry gets all three boxes**, in this order. `/tailor-digest` builds a resume for
+  each `apply` and a letter for each `cover letter`.
 - **Always state the metro**, and show the penalty for anything outside the user's top
   metro (the one with penalty 0). A role at 80 is only useful if it's obvious where it is.
 - If `duplicate_count` > 1, note "N identical reqs posted".

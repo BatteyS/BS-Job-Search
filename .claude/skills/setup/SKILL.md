@@ -20,9 +20,11 @@ writes six files, in this order, each building on the ones before:
 After that come API keys, scraped boards, target employers, a preview that tunes the
 clusters on real postings, and `profile/feedback.md`.
 
-Tell the user up front that doing it properly takes an hour or more, most of it on their
-resume, and that they can stop after any step: running /setup again picks up where they
-left off. The two profiles in `examples/` show what finished files look like.
+On a fresh copy, tell the user up front that doing it properly takes an hour or more,
+most of it on their resume. When Step 1 finds most of the files already there, size that
+to the steps agreed instead, which take far less. Either way, they can stop after any
+step: running /setup again picks up where they left off. The two profiles in `examples/`
+show what finished files look like.
 
 ## Ground rules
 
@@ -35,8 +37,13 @@ left off. The two profiles in `examples/` show what finished files look like.
 - **The user approves master.md, story.md, and profile.md.** They are ground truth
   (CLAUDE.md). Write each as a draft with this line right after any front matter:
   `<!-- /setup draft: not yet reviewed -->`. Have the user read all of it, correct it with
-  them, and remove the line only when they approve. A later /setup run that finds the
-  line resumes that review. Once setup is done, no skill edits these files on its own.
+  them, and remove the line only when they approve. Once setup is done, no skill edits
+  these files on its own; the cover-letter interview adds to story.md and master.md only
+  what the user approves.
+- **Save as you go.** In the interviews of Steps 3 and 4, write the draft after each role
+  or heading, not only at the end, so stopping halfway keeps what the user said. Leave
+  `<!-- /setup: still to ask -->` under each role or heading not yet covered. A later
+  /setup run that finds the draft line picks up at the first of those, then the review.
 - **Never ask for an API key or password in chat.** Keys go into gitignored files the
   user edits themselves (Step 8).
 - **Scraped boards are the user's decision, one board at a time** (Step 9).
@@ -59,6 +66,13 @@ Then tell the user which of the six files already exist, and agree which steps t
 file doctor reports as a `/setup` draft comes first: finish its review before starting
 anything new. A copy that has all six needs only the steps the user wants to redo. That
 is often just Step 4, since `story.md` is the file people skip.
+
+When files exist, ask what has changed since they were written: a new job or title, a
+role that ended, a move, a new degree or certification. Doctor cannot see any of it. Say
+which files each change leaves out of date (a new or ended role: master.md, and the
+current role in profile.md; a move: contact.local.md, profile.md, and filters.yaml), and
+ask whether to update them now or later. Do what the user says: someone a week into a new
+job may rightly leave the resume until they next look.
 
 ## Step 2 — contact details
 
@@ -177,11 +191,20 @@ with the user.
 ## Step 4 — the story, content/story.md
 
 A cover letter needs what a resume cannot hold: why this field, what they want next, and
-the stories behind their best bullets. Follow the headings of
-`content/story.example.md`, asking about each in turn:
+the stories behind their best bullets. Ask first how many letters they expect to write,
+and fit the step to the answer. Someone who will write few can leave Stories worth
+telling and How I write for /cover-letter to ask about when a letter needs them; leave a
+comment under each heading saying so. A user who will not write cover letters can skip
+this step.
 
-- **Why this field**: the moment, project, or problem that drew them in.
-- **What I'm looking for next**: what they want to own or learn, and why now.
+Follow the headings of `content/story.example.md`, asking about each in turn:
+
+- **Why this field**: the moment, project, or problem that drew them in. A search that
+  spans fields, such as engineering roles and AI roles, needs a paragraph for each, so a
+  letter can use the one that fits the posting.
+- **What I'm looking for next**: what they want to own or learn, and why now. Someone who
+  has just started a job may have no answer yet; leave a dated comment to revisit when
+  they next look.
 - **Career moves, in my words**: each move, what they went looking for and what they
   found.
 - **Stories worth telling**: two or three, each expanding a strong master.md bullet with
@@ -189,12 +212,20 @@ the stories behind their best bullets. Follow the headings of
 - **How I write**: optional, a short paragraph they wrote themselves, so letters can sound
   like them.
 - **Keep out of letters**: anything a letter must never mention, such as why they left a
-  job, or pay.
+  job, or pay. Name the topic, never its content: "Why I left Acme", not the reason.
+  /cover-letter reads every line of this file, so the candid reason does not belong in it.
+
+On a copy that already has profile.md, it may hold some of these answers, such as why
+each job ended. It is written for the scorer, and /cover-letter may not read it, so use
+it only to ask better questions. Ask for the version the user is glad an employer reads,
+in their words, and never copy from profile.md.
 
 Write it in their words. Tidy the grammar but keep their phrasing, and make each
 paragraph a whole thought that stands alone, since each is a passage a letter will cite.
-Numbers must match master.md or be ones they gave you. Review it with them as in Step 3.
-A user who will not write cover letters can skip this step.
+Check every fact against master.md, not only the numbers: employers, titles, dates,
+funders, programs, and how the work itself is described. Where the user's account and
+master.md differ, say how and ask which is right; never pick one yourself. Numbers must
+match master.md or be ones they gave you. Review it with them as in Step 3.
 
 ## Step 5 — the profile, profile/profile.md
 
@@ -403,12 +434,14 @@ Run doctor once more and resolve whatever it reports. Then explain how the piece
 
 1. `/job-scan` asks which clusters to target, then fetches, scores against profile.md,
    and writes `digests/YYYY-MM-DD.md`.
-2. The user marks digest entries `apply` or `skip — reason`. The reasons go into
-   feedback.md and recalibrate every later scan.
-3. `/tailor-digest` builds a resume for every `apply`. `/tailor-resume` builds one for a
-   single posting.
+2. The user marks digest entries `apply` or `skip — reason`, and ticks `cover letter` on
+   any apply that should get one. The reasons go into feedback.md and recalibrate every
+   later scan.
+3. `/tailor-digest` builds a resume for every `apply` and a letter for every
+   `cover letter`. `/tailor-resume` builds one resume for a single posting.
 4. `/cover-letter` writes a letter whose every claim cites master.md, story.md, the
-   posting, or something the user said.
+   posting, or something the user said. When a letter needs a story the files lack, it
+   asks, and adds the answer to story.md once the user approves it.
 
 If this copy is a git repository, offer to commit the new files. `contact.local.md` and
 the key files are gitignored and stay out. If the repository is on GitHub, it should be

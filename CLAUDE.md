@@ -12,18 +12,25 @@ Write the message describing what changed and why, nothing else.
 | File | Role |
 |---|---|
 | `profile/profile.md` | Career profile, constraints, scoring rubric. Human-maintained. |
-| `content/master.md` | Every resume fact. Facts are added by the user, by hand. |
-| `content/story.md` | Motivations and stories for cover letters, in the user's words. Human-maintained. |
+| `content/master.md` | Every resume fact. Facts come from the user: added by hand, or through the two interviews below. |
+| `content/story.md` | Motivations and stories for cover letters, in the user's words. Human-maintained, plus the two interviews below. |
 
 Skills and scripts **select** from these; they never invent, embellish, or infer a claim.
 If a posting wants something the user genuinely lacks, that is a gap to report, not
 something to write around. A cover letter says only what these files, the posting, or
 the user in chat said first, and every number in it must come from one of them.
 
-The one exception is `/setup`, which writes the first version of each file from the
-user's own resume and what they say in its interview. Each is a draft until the user has
-read all of it and approved it, and `/setup` never rewrites a file that exists unless the
-user asks it to.
+There are two exceptions, and both write only what the user said, in their words, after
+the user approves it:
+
+- **`/setup`** writes the first version of each file from the user's own resume and what
+  they say in its interview. Each is a draft until the user has read all of it and
+  approved it, and `/setup` never rewrites a file that exists unless the user asks it to.
+- **The cover-letter interview** (`/cover-letter`, and `/tailor-digest` for roles ticked
+  `cover letter`; added 2026-11-02) asks for what a letter needs that these files lack.
+  It then adds the answers to `story.md`, and any new resume fact to `master.md`. It shows
+  the exact text first and writes only what the user approves. It adds without rewriting
+  or removing what is there, and it never touches `profile.md`.
 
 ## Things already decided — don't silently reverse them
 

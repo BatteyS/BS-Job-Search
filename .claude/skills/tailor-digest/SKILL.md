@@ -1,6 +1,6 @@
 ---
 name: tailor-digest
-description: Build a tailored resume for every role marked `apply` on a digest, filing the .tex and .pdf into Applications/<Company>/<Job Title>.*. Use when the user says "tailor the digest", "build resumes for what I marked", "run the applies", or asks for resumes for everything they marked apply.
+description: Build a tailored resume for every role marked `apply` on a digest, and a cover letter for every role also marked `cover letter`, interviewing the user first for anything a letter needs that their files lack. Files the .tex and .pdf into Applications/<Company>/<Job Title>.*. Use when the user says "tailor the digest", "build resumes for what I marked", "run the applies", or asks for resumes for everything they marked apply.
 ---
 
 # Tailor every role marked `apply`
@@ -8,8 +8,9 @@ description: Build a tailored resume for every role marked `apply` on a digest, 
 This is `tailor-resume` run across a whole digest. The per-role discipline lives there and
 is not repeated here — **read `.claude/skills/tailor-resume/SKILL.md` before starting**,
 because depth, variant choice, and the rule against inventing bullets all still apply.
-What this skill adds is the loop, and the three ways a loop goes wrong that a single
-build never does.
+When any role has `cover letter` ticked, read `.claude/skills/cover-letter/SKILL.md` too.
+What this skill adds is the loop, and the ways a loop goes wrong that a single build
+never does.
 
 ## Step 1 — read the marks
 
@@ -20,11 +21,16 @@ python scripts/digest_applies.py
 Defaults to the newest `digests/*.md`. Add `--date YYYY-MM-DD` for an older one, or
 `--pending` to skip roles whose `.tex` and `.pdf` are both already filed.
 
-The parser is mechanical — it reports what the user ticked and where each file would land.
-Three things in its output need a decision before any building starts:
+Each digest entry has three boxes: `apply`, `skip — reason:`, and `cover letter`, which
+asks for a letter beside that role's resume. The parser is mechanical — it reports what
+the user ticked and where each file would land, letters included. Four things in its
+output need a decision before any building starts:
 
-- **`CONFLICT`** — both `apply` and `skip` are ticked. Ask which they meant. Never guess.
-- **`unmarked`** — entries with neither box ticked. Usually the digest isn't fully
+- **`CONFLICT`** — `skip` is ticked with `apply` or `cover letter`. Ask which they meant.
+  Never guess.
+- **`LETTER ONLY`** — `cover letter` is ticked but `apply` is not. Ask whether they mean
+  to apply; a letter goes with a resume.
+- **`unmarked`** — entries with no box ticked. Usually the digest isn't fully
   triaged yet. Say how many and let them decide whether to keep going.
 - **`!!` folder note** — an existing `Applications/` folder reads as the same employer
   under a different spelling. The real case: the digest writes *Black & Veatch* and the
@@ -54,6 +60,27 @@ against eighty words produces a resume that looks tailored and isn't.
 
 Report the fetch results as a group before building anything: which came back full, which
 are dead, which need a paste.
+
+## Step 2a — gather what the letters need, before building anything
+
+Skip this step when no live role has `cover letter` ticked. Otherwise, for those roles,
+follow `cover-letter` Steps 2–3c now, before any resume is built:
+
+1. **Why this company, asked once.** List every letter role and ask why they want each,
+   rather than interrupting them per letter. A role they pass on gets a letter that opens
+   on fit instead.
+2. **The interview, one role at a time.** For each role, pick the two or three strongest
+   matches between its posting and `master.md`, and look in `story.md` for the story
+   behind each. Ask only for what is missing, a few questions per turn, as
+   `cover-letter` Step 3b says. A story told for one role often serves the next; ask
+   nothing twice.
+3. **Save what they said.** Add the answers to `story.md`, and any new resume fact to
+   `master.md`, with the user's approval of the exact text, as `cover-letter` Step 3c
+   says.
+
+It comes first for a reason: a fact added to `master.md` now reaches every resume in the
+batch. Added after some are built, it would split the batch across two versions of the
+truth (hazard two, below).
 
 ## Step 2b — one manifest per role, from that role's posting
 
@@ -138,14 +165,13 @@ not sufficient — a half-empty page holds it too. If any build still reports sl
 role is not done: add `fill` candidates and rebuild it before reporting the batch
 complete.
 
-## Step 5b — cover letters, if the user wants them
+## Step 5b — cover letters, for every role ticked `cover letter`
 
-Only when asked. Follow `.claude/skills/cover-letter/SKILL.md` per role, after that role's
-resume is built, so each letter can complement its resume. One batch adjustment: the
-skill asks why the user wants each role, and in a batch you ask **once**, listing every
-role, rather than interrupting them per letter. A role they skip gets a letter that opens
-on fit instead. Every letter still gets its own `--check` and its own report of
-paragraphs beside sources.
+Follow `cover-letter` Steps 4–6 per role, after that role's resume is built, so each
+letter can complement its resume. Step 2a has already asked why each company and filled
+the files with what the letters need. A user who asks for a letter on a role without the
+box gets one too: run Step 2a for it first. Every letter gets its own `--check` and its
+own report of paragraphs beside sources.
 
 ## Step 6 — report once, as a table
 
@@ -164,8 +190,8 @@ Then, below it, only the things that need the user's attention:
   important line in its output
 - roles where the builder's variant differed from the digest's suggestion, and why
 - gaps found against postings, gathered from Step 3
-- any bullet added to `master.md`, stated explicitly — that file is their ground truth and
-  they should know when it changes
+- anything added to `master.md` or `story.md`, stated explicitly — those files are their
+  ground truth and they should know when they change
 
 ## Notes
 

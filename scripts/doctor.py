@@ -5,7 +5,8 @@ Run it first on a new machine, and whenever something stops working:
     python scripts/doctor.py
 
 Each line is one check: `ok`, `MISSING` with the fix for this operating system,
-or `optional` for something only some features need. It reads files and runs
+`DRAFT` for a file /setup wrote that has not been reviewed yet, or `optional` for
+something only some features need. It reads files and runs
 local tools only -- no network -- and changes nothing. Exit code 1 means a
 required check failed.
 """
@@ -178,7 +179,7 @@ def check_profile() -> dict:
             check_dates(entries)
             shape = f"{roles} roles, {bullets} bullets, read as {mode}"
             if draft(master):
-                report("MISSING", rel(master), f"a /setup draft, not yet reviewed ({shape})",
+                report("DRAFT", rel(master), f"written by /setup, not yet reviewed ({shape})",
                        review)
             else:
                 report("ok", rel(master), shape)
@@ -191,7 +192,7 @@ def check_profile() -> dict:
         report("optional", rel(story), "only cover letters need it",
                f"{setup}, or start from content/story.example.md")
     elif draft(story):
-        report("MISSING", rel(story), "a /setup draft, not yet reviewed", review)
+        report("DRAFT", rel(story), "written by /setup, not yet reviewed", review)
     else:
         report("ok", rel(story))
 
@@ -199,7 +200,7 @@ def check_profile() -> dict:
     if not os.path.exists(profile):
         report("MISSING", rel(profile), "the scoring rubric lives here", setup)
     elif draft(profile):
-        report("MISSING", rel(profile), "a /setup draft, not yet reviewed", review)
+        report("DRAFT", rel(profile), "written by /setup, not yet reviewed", review)
     else:
         report("ok", rel(profile))
 
@@ -323,7 +324,8 @@ def main() -> int:
         print(f"  {status:8} {what:<{width}}  {detail}".rstrip())
         if fix and status != "ok":
             print(f"  {'':8} {'':<{width}}  fix: {fix}")
-    missing = sum(1 for s, *_ in results if s == "MISSING")
+    # A draft holds back "Ready." too: until it is reviewed, it is not ground truth.
+    missing = sum(1 for s, *_ in results if s in ("MISSING", "DRAFT"))
     print("\n" + ("Ready." if not missing else
                   f"{missing} thing(s) to fix before everything works; see 'fix:' above."))
     return 1 if missing else 0

@@ -7,7 +7,7 @@ import copy
 import pytest
 
 from helpers import example
-from build_letter import Sources, check
+from build_letter import Sources, check, story_passages
 
 POSTING = """Clinical Informatics Nurse — Valley Health Partners
 
@@ -72,6 +72,18 @@ def test_a_posting_quote_must_be_in_the_posting(sources):
                                 {"posting": "a fully remote role with travel"}])
     _, errors, _ = check(letter, sources)
     assert any("is not in the posting" in e for e in errors), errors
+
+
+def test_keep_out_items_are_not_passages():
+    cite, kept_out = story_passages(example("nurse-sacramento", "story.md"))
+    assert "Why I left Delta Ridge Hospital." in kept_out
+    assert not any("Delta Ridge" in p for p in cite)
+
+
+def test_a_keep_out_item_cannot_be_cited(sources):
+    letter = edited(2, sources=[{"story": "Why I left Delta Ridge Hospital"}])
+    _, errors, _ = check(letter, sources)
+    assert any("Keep out of letters" in e for e in errors), errors
 
 
 def test_stock_phrasing_is_flagged(sources):

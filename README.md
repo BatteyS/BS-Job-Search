@@ -56,8 +56,9 @@ shells, so a terminal or app opened before the install will not find `pdflatex`.
 uv run python scripts/doctor.py
 ```
 
-Each line is `ok`, `MISSING` with the fix for your system, or `optional` for something
-only some features need. It reads files and runs local tools only, and changes nothing.
+Each line is `ok`, `MISSING` with the fix for your system, `DRAFT` for a file `/setup`
+wrote that you have not finished reviewing, or `optional` for something only some
+features need. It reads files and runs local tools only, and changes nothing.
 Run it again whenever something stops working.
 
 ### Your profile
@@ -106,17 +107,22 @@ Everything runs from Claude Code, in this folder:
 1. **`/job-scan`** asks which kinds of role to look for, then fetches postings, filters
    them, scores what is left against `profile/profile.md`, and writes
    `digests/YYYY-MM-DD.md`.
-2. **Mark the digest.** Write `apply`, or `skip — reason`, on each entry. The reasons go
-   into `profile/feedback.md`, and every later scan reads them. "skip — wants 8+ years"
+2. **Mark the digest.** Tick `apply`, or `skip` with a reason, on each entry, and tick
+   `cover letter` too on any apply that should get one. The reasons go into
+   `profile/feedback.md`, and every later scan reads them. "skip — wants 8+ years"
    teaches the scorer something; "skip" alone does not.
-3. **`/tailor-digest`** builds a tailored resume for every `apply`. **`/tailor-resume`**
-   builds one for a single posting. Each reads the posting in full, picks from
-   `master.md`, and files the PDF under `Applications/<Company>/`.
+3. **`/tailor-digest`** builds a tailored resume for every `apply`, and a cover letter
+   for every `cover letter`. **`/tailor-resume`** builds one resume for a single posting.
+   Each reads the posting in full, picks from `master.md`, and files the PDF under
+   `Applications/<Company>/`.
 4. **`/cover-letter`** writes a letter whose every claim cites `master.md`, `story.md`,
-   the posting, or something you said, and refuses any number none of those holds.
+   the posting, or something you said, and refuses any number none of those holds. When
+   a letter needs a story your files do not have, it asks you for it first.
 
 Nothing edits your profile or resume facts behind your back. Skills select from them;
-when a posting wants something you do not have, that is reported as a gap.
+when a posting wants something you do not have, that is reported as a gap. The only
+additions come from interviews you take part in: `/setup`, and a cover letter that asks
+for a story. Each shows you the exact text and writes only what you approve.
 
 ### API keys
 

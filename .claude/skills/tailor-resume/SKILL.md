@@ -226,7 +226,8 @@ ask — a fabricated bullet is far worse than a thinner resume.
 If real experience is missing from `master.md` entirely, it cannot go on a resume. That is
 a gap to raise with the user so **they** add it. `master.md` is human-maintained ground
 truth; never add a fact to it on their behalf, and tell them explicitly if they ask you to
-change it.
+change it. The one route in besides their own hand is the cover-letter interview, which
+adds what they tell it and approve (CLAUDE.md).
 
 ## Step 4 — build
 

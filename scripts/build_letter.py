@@ -6,7 +6,8 @@ What stays mechanical is what must not drift, the same way it does for resumes:
   * Each paragraph names its sources -- a content/master.md bullet, a passage of
     content/story.md, a quote from the posting, or something the user said --
     and every source has to resolve to text that exists. A master.md or
-    story.md fragment must match exactly one passage.
+    story.md fragment must match exactly one passage, and never an item under
+    story.md's "Keep out of letters".
   * Every number in a paragraph, in digits or words, has to appear in one of
     that paragraph's sources. An invented metric is the most likely fabrication
     in a letter, and the cheapest one to catch.
@@ -113,13 +114,19 @@ def numbers(s: str) -> set[str]:
     return found | {NUMBER_WORDS[w.lower()] for w in NUMBER_WORD.findall(s)}
 
 
-def story_passages(path: str) -> list[str]:
+def story_passages(path: str) -> tuple[list[str], list[str]]:
     """story.md's passages: each paragraph, and each list item on its own.
-    Headings organize the file and are not claims, so they are skipped."""
+    Headings organize the file and are not claims, so they are skipped.
+
+    Returns (the passages a letter may cite, the items under "Keep out of
+    letters"). Those items name what a letter must never mention, so they are
+    kept apart: citing one is an error, not a source."""
     raw = open(path, encoding="utf-8").read()
     raw = re.sub(r"\A---\n.*?\n---\n", "", raw, flags=re.S)
     raw = re.sub(r"<!--.*?-->", "", raw, flags=re.S)
-    out: list[str] = []
+    cite: list[str] = []
+    kept_out: list[str] = []
+    out = cite
     buf: list[str] = []
 
     def flush() -> None:
@@ -131,13 +138,15 @@ def story_passages(path: str) -> list[str]:
         s = line.strip()
         if not s or s.startswith("#"):
             flush()
+            if s.startswith("#"):
+                out = kept_out if re.match(r"keep out\b", s.lstrip("#").strip(), re.I) else cite
             continue
         if re.match(r"[-*]\s+", s):
             flush()
             s = re.sub(r"^[-*]\s+", "", s)
         buf.append(s)
     flush()
-    return out
+    return cite, kept_out
 
 
 class Sources:
@@ -149,7 +158,8 @@ class Sources:
         self.headings = [" | ".join(p for p in e.title_parts if p)
                          for e in entries if not e.meta.get("list")]
         self.story_path = story
-        self.story = story_passages(story) if os.path.exists(story) else None
+        self.story, self.kept_out = (story_passages(story) if os.path.exists(story)
+                                     else (None, []))
         self.posting_path = posting
         self.posting = (norm(open(posting, encoding="utf-8").read())
                         if posting and os.path.exists(posting) else None)
@@ -169,6 +179,10 @@ class Sources:
         if kind == "story":
             if self.story is None:
                 return None, f"cannot be checked: {os.path.relpath(self.story_path, ROOT)} does not exist"
+            if (not any(f in norm(p) for p in self.story)
+                    and any(f in norm(p) for p in self.kept_out)):
+                return None, ('is under "Keep out of letters" in story.md, which a letter '
+                              "must never mention")
             pool = self.story
         else:
             pool = [b for b in self.bullets if f in norm(b)] or self.headings

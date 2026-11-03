@@ -1,8 +1,8 @@
-"""Read a digest and report the entries marked `apply`.
+"""Read a digest and report the entries marked `apply`, and which want a letter.
 
 Purely mechanical: it parses what the user already decided and computes where each
-resume would be filed. No scoring, no cluster inference, no judgment -- those
-belong to the tailor-digest skill, the same way fetch_jobs.py stays out of the
+resume and letter would be filed. No scoring, no cluster inference, no judgment --
+those belong to the tailor-digest skill, the same way fetch_jobs.py stays out of the
 scoring that follows it.
 
     python scripts/digest_applies.py                 # newest digest, as a table
@@ -10,12 +10,16 @@ scoring that follows it.
     python scripts/digest_applies.py --date 2026-08-12
     python scripts/digest_applies.py --pending       # only the not-yet-built
 
-Entries are matched on the checkbox the user ticks:
+Entries are matched on the checkboxes the user ticks:
 
     - [x] apply
     - [ ] skip -- reason:
+    - [x] cover letter
 
-Both boxes ticked, or neither, is reported rather than guessed at.
+`cover letter` rides on `apply`: it asks for a letter beside that role's resume.
+Digests written before the box existed have no such line, and read as no letter.
+Apply and skip both ticked, a letter on a skipped role, a letter with neither, and
+no box at all are each reported rather than guessed at.
 """
 
 from __future__ import annotations
@@ -38,7 +42,7 @@ EM_DASH = chr(8212)   # separates company from title in a heading
 MIDDOT = chr(183)     # separates the fields of a heading
 
 RE_HEADING = re.compile(r"^###\s+(\d+)\.\s+(.*?)\s*$")
-RE_CHECKBOX = re.compile(r"^-\s*\[([ xX])\]\s*(apply|skip)\b", re.I)
+RE_CHECKBOX = re.compile(r"^-\s*\[([ xX])\]\s*(apply|skip|cover\s+letter)\b", re.I)
 RE_SCORE = re.compile(r"^\*\*(\d+)\*\*$")
 RE_RESUME = re.compile(r"^\*\*Resume:\*\*\s*([A-Za-z_-]+)")
 RE_URL = re.compile(r"\[View posting\]\(([^)]+)\)")
@@ -133,7 +137,8 @@ def parse(path: str) -> dict:
         for line in body:
             m = RE_CHECKBOX.match(line)
             if m:
-                marks[m.group(2).lower()] = m.group(1).lower() == "x"
+                box = m.group(2).lower()
+                marks["letter" if box.startswith("cover") else box] = m.group(1).lower() == "x"
 
         variant = ""
         url = ""
@@ -158,6 +163,8 @@ def parse(path: str) -> dict:
         folder = os.path.join(APPS, folder_name)
         pdf = os.path.join(folder, stem + ".pdf")
         tex = os.path.join(folder, stem + ".tex")
+        # Where build_letter.py files it.
+        letter_pdf = os.path.join(folder, stem + " - cover letter.pdf")
         rel = lambda p: os.path.relpath(p, ROOT).replace(os.sep, "/")  # noqa: E731
 
         entries.append({
@@ -174,21 +181,31 @@ def parse(path: str) -> dict:
             "gaps": prose.get("gaps", ""),
             "marked_apply": marks.get("apply", False),
             "marked_skip": marks.get("skip", False),
+            "marked_letter": marks.get("letter", False),
             "folder": rel(folder),
             "pdf": rel(pdf),
             "tex": rel(tex),
+            "letter_pdf": rel(letter_pdf),
             "already_built": os.path.exists(pdf) and os.path.exists(tex),
+            "letter_built": os.path.exists(letter_pdf),
             "folder_note": note,
         })
 
+    apply = [e for e in entries if e["marked_apply"] and not e["marked_skip"]]
     return {
         "digest": os.path.relpath(path, ROOT).replace(os.sep, "/"),
         "date": os.path.splitext(os.path.basename(path))[0],
         "total_entries": len(entries),
-        "apply": [e for e in entries if e["marked_apply"] and not e["marked_skip"]],
-        "conflicts": [e for e in entries if e["marked_apply"] and e["marked_skip"]],
-        "unmarked": [e for e in entries
-                     if not e["marked_apply"] and not e["marked_skip"]],
+        "apply": apply,
+        "letters": [e for e in apply if e["marked_letter"]],
+        # A letter is for a role being applied to, so one on a skipped role
+        # contradicts the skip as much as a ticked apply does.
+        "conflicts": [e for e in entries
+                      if e["marked_skip"] and (e["marked_apply"] or e["marked_letter"])],
+        "letter_only": [e for e in entries if e["marked_letter"]
+                        and not e["marked_apply"] and not e["marked_skip"]],
+        "unmarked": [e for e in entries if not
+                     (e["marked_apply"] or e["marked_skip"] or e["marked_letter"])],
     }
 
 
@@ -198,7 +215,8 @@ def main() -> int:
     ap.add_argument("--date", help="digest date, YYYY-MM-DD")
     ap.add_argument("--json", action="store_true", help="machine-readable output")
     ap.add_argument("--pending", action="store_true",
-                    help="only entries whose PDF and .tex are not both filed yet")
+                    help="only entries whose PDF and .tex are not both filed yet, "
+                         "or whose letter is not")
     args = ap.parse_args()
 
     if args.digest:
@@ -212,7 +230,10 @@ def main() -> int:
 
     result = parse(path)
     if args.pending:
-        result["apply"] = [e for e in result["apply"] if not e["already_built"]]
+        # A filed resume whose letter is still to write stays: the letter is pending.
+        result["apply"] = [e for e in result["apply"] if not e["already_built"]
+                           or (e["marked_letter"] and not e["letter_built"])]
+        result["letters"] = [e for e in result["letters"] if not e["letter_built"]]
 
     if args.json:
         print(json.dumps(result, indent=2, ensure_ascii=False))
@@ -222,6 +243,7 @@ def main() -> int:
     print(f"entries   : {result['total_entries']}")
     print(f"apply     : {len(result['apply'])}"
           + ("  (pending only)" if args.pending else ""))
+    print(f"letters   : {len(result['letters'])}")
     if result["unmarked"]:
         nums = ", #".join(str(e["n"]) for e in result["unmarked"])
         print(f"unmarked  : {len(result['unmarked'])}  (#{nums})")
@@ -235,12 +257,19 @@ def main() -> int:
               + f" - suggests {e['suggested_variant'] or '?'}"
               + ("  [snippet]" if e["snippet"] else ""))
         print(f"       -> {e['pdf']}  [{state}]")
+        if e["marked_letter"]:
+            print(f"       -> {e['letter_pdf']}  "
+                  f"[{'written' if e['letter_built'] else 'TO WRITE'}]")
         if e["folder_note"]:
             print(f"       !! {e['folder_note']}")
         print()
 
     for e in result["conflicts"]:
-        print(f"  CONFLICT #{e['n']} {e['company']} - apply and skip both ticked")
+        ticked = " and ".join(name for name, on in (("apply", e["marked_apply"]),
+                                                    ("cover letter", e["marked_letter"])) if on)
+        print(f"  CONFLICT #{e['n']} {e['company']} - {ticked} ticked with skip")
+    for e in result["letter_only"]:
+        print(f"  LETTER ONLY #{e['n']} {e['company']} - cover letter ticked, apply not")
     if not result["apply"]:
         print("  nothing to build" if args.pending else "  nothing marked apply")
     return 0

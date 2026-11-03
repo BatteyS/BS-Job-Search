@@ -15,14 +15,18 @@ ENGINE = ["scripts", "presets", "Resume/LaTeX", "content/contact.example.md",
           "sources/usajobs.example.yaml", "pyproject.toml"]
 
 
-def test_a_fresh_copy_points_to_setup(tmp_path):
+def fresh_copy(path) -> None:
     for item in ENGINE:
-        src, dst = os.path.join(ROOT, item), tmp_path / item
+        src, dst = os.path.join(ROOT, item), path / item
         if os.path.isdir(src):
             shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__"))
         else:
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(src, dst)
+
+
+def test_a_fresh_copy_points_to_setup(tmp_path):
+    fresh_copy(tmp_path)
     code, out = run("doctor", cwd=str(tmp_path))
     assert code == 1, out
     assert "Traceback" not in out
@@ -31,6 +35,15 @@ def test_a_fresh_copy_points_to_setup(tmp_path):
         line = next(ln for ln in out.splitlines() if missing in ln)
         assert line.split()[0] == "MISSING", line
     assert "run /setup in Claude Code" in out
+
+
+def test_a_setup_draft_reads_as_a_draft(tmp_path):
+    fresh_copy(tmp_path)
+    (tmp_path / "content/story.md").write_text(
+        f"{doctor.DRAFT}\n\n# Why this field\n\nA sentence.\n", encoding="utf-8")
+    _, out = run("doctor", cwd=str(tmp_path))
+    line = next(ln for ln in out.splitlines() if "content/story.md" in ln)
+    assert line.split()[0] == "DRAFT", line
 
 
 def test_a_uv_fix_keeps_the_extras_already_installed(monkeypatch):

@@ -62,7 +62,8 @@ was seen so the next scan shows only what is new.
 **Stage 2 is the `job-scan` skill.** Claude reads every candidate against the rubric in
 `profile.md`, the corrections in `feedback.md`, and each cluster's notes, subtracts the
 location penalty, and writes the digest. Your `apply` and `skip — reason` marks go back
-into `feedback.md`, which is how scoring improves.
+into `feedback.md`, which is how scoring improves. A third box, `cover letter`, asks for a
+letter beside an apply's resume.
 
 ## A resume
 
@@ -87,6 +88,13 @@ said. `build_letter.py --check` refuses the letter until three things hold:
 
 It also flags stock phrases. A letter longer than a page is refused rather than trimmed,
 because cutting changes what it says.
+
+Before writing, `/cover-letter` looks for the story behind each piece of evidence it
+means to use. When `story.md` lacks one, it asks you, a few questions at a time. Your
+answers go into `story.md`, and any new resume fact into `master.md`, once you approve the
+exact text, so the letter cites a file and the next letter finds the story there.
+`/tailor-digest` asks these questions for every role ticked `cover letter` before it
+builds any resume, so a fact you add reaches every resume in the batch.
 
 ## Setup and upkeep
 
