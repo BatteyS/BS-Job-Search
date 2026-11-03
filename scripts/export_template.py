@@ -45,7 +45,7 @@ ENGINE = [
     "ARCHITECTURE.md", "CLAUDE.md", "LICENSE", "README.md",
     "pyproject.toml", "uv.lock", "scan.ps1", "sync.ps1",
     "content/contact.example.md", "content/story.example.md",
-    "examples/*", "presets/*", "scripts/*", "tests/*",
+    "examples/*", "presets/*", "scripts/*", "tests/*", "ui/*",
     "sources/adzuna.example.yaml", "sources/usajobs.example.yaml",
     "Resume/LaTeX/template.tex", "Resume/LaTeX/letter.tex",
 ]

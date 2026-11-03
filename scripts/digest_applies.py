@@ -231,6 +231,59 @@ def parse(path: str) -> dict:
     }
 
 
+def write_marks(path: str, n: int, *, apply: bool | None = None, skip: bool | None = None,
+                letter: bool | None = None, skip_reason: str | None = None) -> None:
+    """Set entry `n`'s boxes in place, touching nothing else in the file. None
+    leaves a box as it is. A ticked letter on an entry written before the box
+    existed adds the line. Unticking skip clears its reason unless one is given,
+    so a stale reason never counts against a role later."""
+    text = open(path, encoding="utf-8").read()
+    lines = text.split("\n")
+
+    start, end = None, len(lines)
+    for i, line in enumerate(lines):
+        m = RE_HEADING.match(line)
+        if start is None:
+            if m and int(m.group(1)) == n:
+                start = i
+        elif m or line.startswith("## "):
+            end = i
+            break
+    if start is None:
+        raise ValueError(f"no entry #{n} in {os.path.relpath(path, ROOT)}")
+
+    seen: set[str] = set()
+    last_box = start
+    for i in range(start + 1, end):
+        m = RE_CHECKBOX.match(lines[i])
+        if not m:
+            continue
+        box = m.group(2).lower()
+        key = "letter" if box.startswith("cover") else box
+        seen.add(key)
+        last_box = i
+        ticked = m.group(1).lower() == "x"
+        if key == "skip":
+            if skip is None and skip_reason is None:
+                continue
+            if skip is not None:
+                ticked = skip
+            current = re.search(r"reason\s*:\s*(.*?)\s*$", lines[i], re.I)
+            reason = skip_reason if skip_reason is not None else (
+                current.group(1) if current and ticked else "")
+            lines[i] = (f"- [{'x' if ticked else ' '}] skip {EM_DASH} reason:"
+                        + (f" {reason.strip()}" if reason.strip() else ""))
+        else:
+            value = apply if key == "apply" else letter
+            if value is not None:
+                lines[i] = re.sub(r"\[[ xX]\]", "[x]" if value else "[ ]", lines[i], count=1)
+    if "letter" not in seen and letter:
+        lines.insert(last_box + 1, "- [x] cover letter")
+
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines))
+
+
 def verdicts(result: dict) -> str:
     """The digest's marks as a section of profile/feedback.md, followed by what
     to settle before appending it: skips with no reason, and unmarked entries

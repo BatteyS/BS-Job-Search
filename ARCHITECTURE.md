@@ -115,5 +115,20 @@ builds any resume, so a fact you add reaches every resume in the batch.
 | `resolve_ats.py` | Rebuilds `sources/companies.yaml` from a list of employer names, skipping the tokens in `known_bad.txt`. |
 | `export_template.py` | Copies the shareable files to a new folder, refusing if any carries personal data. |
 
+## The page
+
+`ui/server.py` serves a page on this machine only (`uv run python ui/server.py`, with the
+`ui` extra installed) for the work between skills: reading a digest and ticking its boxes,
+which it writes back into the `.md` in place; finding what was filed under
+`Applications/`; running `doctor.py` and `digest_applies.py` with the output streamed;
+and reading the profile files. It also runs the skills: `ui/claude_run.py` starts one
+through the Agent SDK driving the user's own Claude Code in this folder, so the skill,
+`CLAUDE.md` and `.claude/settings.json` are the same ones a terminal would load. Every
+prompt Claude Code would show a person, including the `ask` rule on `master.md`,
+`story.md` and `profile.md`, reaches one callback, becomes a card in the page, and waits.
+The rule that those files are written only after the user sees the exact text is therefore
+enforced by permissions, not by the prompt. `ui/core.py` holds the rest and has no web
+framework in it; neither needs the SDK installed, so the tests cover both without it.
+
 The tests run on every push (`.github/workflows/tests.yml`), along with the
 personal-data check.

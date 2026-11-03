@@ -128,6 +128,39 @@ when a posting wants something you do not have, that is reported as a gap. The o
 additions come from interviews you take part in: `/setup`, and a cover letter that asks
 for a story. Each shows you the exact text and writes only what you approve.
 
+### A page for the digest
+
+Marking a digest means editing checkboxes in a `.md` file. If you would rather click:
+
+```bash
+uv sync --extra ui
+```
+
+```bash
+uv run python ui/server.py
+```
+
+That opens a page at `http://127.0.0.1:8765`, on this machine only (run it again while it
+is up and it opens the running page), where you can read
+each digest and tick `apply`, `skip` with a reason, and `cover letter` (it writes the
+boxes back into the file), turn the marks into a `feedback.md` section and append it once
+nothing is left to settle, see what was filed under `Applications/` with each PDF beside
+its posting, run `doctor.py` and the posting fetch with their output live, and read your
+profile files. Name every extra on each `uv sync`, as above.
+
+The page can also run the skills. Its Runs tab has a button for each of `/job-scan`,
+`/tailor-digest`, `/tailor-resume`, `/cover-letter` and `/setup`; each starts the real
+skill through your own Claude Code, in this folder, with your own login, and shows the
+conversation as it goes. Everything Claude Code would stop and ask you in a terminal
+becomes a card in the page: a command no rule allows, a question with options, and every
+write to `master.md`, `story.md` or `profile.md`, which shows the exact text and waits for
+your approval. A question asked in plain words gets a reply box. One skill runs at a time.
+This needs Claude Code installed and logged in on the machine. The page finds the
+binary on PATH, in the usual install places, or inside the Claude desktop app
+(`BS_CLAUDE_BIN` points it somewhere else), and `doctor.py` says which one it found. The
+desktop app's own login does not carry over to that binary; if it is not logged in,
+doctor and the page print the one command to run, which opens your browser to sign in.
+
 ### API keys
 
 Two free sources need a key, each kept in a gitignored file. `doctor.py` says which are

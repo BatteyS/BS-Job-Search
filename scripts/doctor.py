@@ -313,12 +313,30 @@ def check_sources(filters: dict) -> None:
                    "at your own risk; each prints a warning when it runs")
 
 
+def check_page() -> None:
+    """The local page is optional, so this says something only when its extra
+    is installed, and never holds back "Ready.": the page's other tabs work
+    without Claude Code."""
+    if not importlib.util.find_spec("fastapi"):
+        return
+    sys.path.insert(0, os.path.join(ROOT, "ui"))
+    import claude_run
+    s = claude_run.claude_status()
+    if s["available"]:
+        report("ok", "Claude Code for the page", f"{s['version']} ({s['how']})")
+    else:
+        report("NOTE", "Claude Code for the page", s["reason"],
+               "only the page's skill buttons need this; the rest of the page works "
+               "without it, and BS_CLAUDE_BIN names a different binary")
+
+
 def main() -> int:
     print(f"Checking {ROOT} ({OS})\n")
     check_python()
     check_latex()
     filters = check_profile()
     check_sources(filters)
+    check_page()
 
     width = max(len(w) for _, w, _, _ in results)
     for status, what, detail, fix in results:

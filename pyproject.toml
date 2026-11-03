@@ -29,6 +29,12 @@ dependencies = [
 scraped = ["python-jobspy==1.4.1"]
 # Reading a PDF resume with scripts/extract_text.py.
 pdf = ["pypdf>=4"]
+# The local web page over the workflow: `uv run python ui/server.py`.
+ui = [
+    "claude-agent-sdk>=0.2",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+]
 
 # For running the tests: `uv run --group test pytest`. A group rather than an
 # extra, so nobody's install pulls in pytest by accident.
