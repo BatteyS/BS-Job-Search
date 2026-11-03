@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BS Job Search demo: Avery Chen</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>BS Job Search</h1>
+  <nav>
+    <button data-tab="digests" class="active">Digests</button>
+    <button data-tab="applications">Applications</button>
+    <button data-tab="runs">Runs</button>
+    <button data-tab="profile">Profile</button>
+  </nav>
+  <span id="status" class="status"></span>
+</header>
+
+<main>
+  <section id="tab-digests" class="tab active">
+    <aside id="digest-list" class="side"></aside>
+    <div id="digest-view" class="content"><p class="muted">Choose a digest.</p></div>
+  </section>
+
+  <section id="tab-applications" class="tab">
+    <aside id="app-list" class="side"></aside>
+    <div id="app-view" class="content"><p class="muted">Choose a company.</p></div>
+  </section>
+
+  <section id="tab-runs" class="tab">
+    <aside id="run-commands" class="side"></aside>
+    <div id="run-view" class="content"><p class="muted">Run something.</p></div>
+  </section>
+
+  <section id="tab-profile" class="tab">
+    <aside id="profile-list" class="side"></aside>
+    <div id="profile-view" class="content"><p class="muted">Choose a file. These are read-only here: edit them in your editor, or through the interviews in Claude Code.</p></div>
+  </section>
+</main>
+
+<script src="demo.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,109 @@
+% Layout template for scripts/build_resume.py. No content lives here: every fact
+% comes from content/master.md and the contact line from content/contact.local.md.
+% Placeholders in double percent signs are filled at build time. The
+% chronological and split layouts share this file; they differ only in the
+% section headings the builder writes.
+
+\documentclass[11pt, letterpaper]{article}
+
+\usepackage[top=0.5in, bottom=0.5in, left=0.5in, right=0.5in]{geometry}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{newtxtext}
+
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{titlesec}
+
+\hypersetup{colorlinks=true, urlcolor=black, linkcolor=black}
+
+\titleformat{\section}
+  {\normalfont\bfseries\large\uppercase}
+  {}
+  {0em}
+  {}
+  [\vspace{-9pt}\rule{\linewidth}{1.5pt}]
+\titlespacing{\section}{0pt}{8pt}{0pt}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0pt}
+
+\setlist[itemize]{
+  leftmargin=1.5em,
+  itemsep=0pt,
+  topsep=0pt,
+  parsep=0pt,
+  label=\textbullet}
+
+\begin{document}\pagestyle{empty}
+
+\begin{center}
+  \textbf{\LARGE Jordan Rivera} \\[2pt]
+  \href{mailto:jordan.rivera@example.com}{jordan.rivera@example.com} $|$ Sacramento, CA $|$ \href{https://linkedin.com/in/jordan-rivera-example}{linkedin.com/in/jordan-rivera-example}
+\end{center}
+\vspace{-15pt}
+
+\section{Professional Experience}
+
+\textbf{Kestrel Valley Medical Center} -- {Registered Nurse, Cardiovascular ICU}
+\hfill \textit{Jan 2022 – Present}
+\begin{itemize}
+  \item Precepted 8 new-graduate and transfer nurses through a 12-week ICU orientation; all 8 finished on schedule and 7 were still on the unit a year later.
+  \item Led a 4-month pilot of continuous capnography for post-operative cardiac patients across 20 beds: wrote the charting checklist and trained 45 nurses on both shifts, and charting compliance rose from 71\% to 98\%.
+  \item Unit practice council member since 2023; co-wrote the revised sepsis-screening workflow both ICUs now use.
+  \item Epic super-user for the hospital's 2023 upgrade: wrote 12 tip sheets on flowsheet and order-set changes, staffed go-live support on 3 units, and logged 140 issues to the build team.
+  \item Cares for post-CABG, valve, LVAD, and IABP patients: titrates vasoactive infusions and manages CRRT and post-operative ventilation.
+  \item Relief charge nurse one to two shifts a week since 2023: makes assignments for 9–11 nurses, runs bed flow with the house supervisor, and leads the unit's response to rapid-response calls.
+\end{itemize}
+\vspace{2pt}
+\textbf{Delta Ridge Hospital} -- {Registered Nurse, Cardiac Telemetry}
+\hfill \textit{Aug 2019 – Dec 2021}
+\begin{itemize}
+  \item Falls-prevention team member: falls with injury on the unit dropped from 9 to 3 in the year after the team introduced hourly rounding and bed-alarm checks.
+  \item Cared for 4–5 telemetry patients a shift: post-catheterization, heart failure, arrhythmia, and step-down after cardiac surgery.
+  \item Completed charge nurse orientation in 2021 and covered charge on more than 10 shifts.
+\end{itemize}
+\vspace{2pt}
+\section{Licenses \& Certifications}
+
+Registered Nurse, California Board of Registered Nursing (active) \\
+CCRN (Adult), American Association of Critical-Care Nurses \\
+ACLS and BLS, American Heart Association \\
+NIH Stroke Scale certification
+
+\section{Education}
+
+\textbf{Valley State University} \hfill Online \\
+Graduate Certificate, Nursing Informatics (in progress) \hfill Jan 2026 – Present
+\begin{itemize}
+  \item Coursework in clinical decision support, health data standards, and system implementation; finishing in 2027.
+\end{itemize}
+\vspace{0pt}
+\textbf{Valley State University} \hfill Sacramento, CA \\
+B.S. Nursing \hfill May 2019
+\begin{itemize}
+  \item Graduated magna cum laude.
+  \item Capstone: evaluated bedside handoff practice on a telemetry unit and presented the findings at the school's research day.
+\end{itemize}
+\vspace{0pt}
+\section{Volunteer}
+
+\textbf{Riverbend Community Clinic} -- {Volunteer Triage Nurse}
+\hfill \textit{Jun 2019 – Present}
+\begin{itemize}
+  \item Triages 15–20 walk-in patients per Saturday shift, twice a month, at a free clinic for uninsured adults.
+  \item Wrote the clinic's one-page hypertension follow-up handout, in English and Spanish.
+\end{itemize}
+\vspace{2pt}
+\section{Skills}
+
+\textbf{Teaching:} precepting, tip sheets, at-the-elbow go-live support \\
+\textbf{Clinical:} cardiovascular ICU, post-cardiac-surgery care, vasoactive titration, CRRT, IABP, LVAD, ventilator management, telemetry interpretation \\
+\textbf{Systems:} Epic (ClinDoc, flowsheets, order sets), Pyxis, Excel (pivot tables, lookups)
+
+
+% For the builder's slack report: the height the last page holds, the height
+% used so far, and one line's height.
+\par\typeout{RESUME-SLACK \the\pagegoal\space\the\pagetotal\space\the\baselineskip}
+\end{document}

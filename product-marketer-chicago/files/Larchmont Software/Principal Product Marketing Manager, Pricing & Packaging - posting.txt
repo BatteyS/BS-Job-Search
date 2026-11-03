@@ -1,0 +1,29 @@
+# source: https://example.com/larchmont/principal-pmm-pricing
+# title: Principal Product Marketing Manager, Pricing & Packaging
+# company: Larchmont Software
+# employment_type: Full-time
+
+A fictional posting, written for the BS Job Search demo. Larchmont Software is not a real
+company.
+
+Principal Product Marketing Manager, Pricing & Packaging
+Larchmont Software · Remote (US)
+$172,000 – $190,000
+
+Larchmont Software makes operations analytics for manufacturers and distributors.
+
+The role
+You will lead pricing and packaging research across our operations analytics suite,
+working with product, finance, and sales. This is an individual-contributor role
+reporting to the VP of Product Marketing.
+
+What you will do
+- Run pricing research: customer interviews, surveys, and win/loss analysis.
+- Recommend packaging and price changes, and model their effect with finance.
+- Keep a current view of competitors' pricing.
+- Launch pricing changes to sales and to customers.
+
+What you bring
+- Seven or more years in B2B product marketing or pricing.
+- Experience leading a pricing or packaging change from research to launch.
+- Comfort with SQL or a BI tool for your own analysis.

@@ -1,0 +1,117 @@
+% Layout template for scripts/build_resume.py. No content lives here: every fact
+% comes from content/master.md and the contact line from content/contact.local.md.
+% Placeholders in double percent signs are filled at build time. The
+% chronological and split layouts share this file; they differ only in the
+% section headings the builder writes.
+
+\documentclass[11pt, letterpaper]{article}
+
+\usepackage[top=0.5in, bottom=0.5in, left=0.5in, right=0.5in]{geometry}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{newtxtext}
+
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{titlesec}
+
+\hypersetup{colorlinks=true, urlcolor=black, linkcolor=black}
+
+\titleformat{\section}
+  {\normalfont\bfseries\large\uppercase}
+  {}
+  {0em}
+  {}
+  [\vspace{-9pt}\rule{\linewidth}{1.5pt}]
+\titlespacing{\section}{0pt}{8pt}{0pt}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0pt}
+
+\setlist[itemize]{
+  leftmargin=1.5em,
+  itemsep=0pt,
+  topsep=0pt,
+  parsep=0pt,
+  label=\textbullet}
+
+\begin{document}\pagestyle{empty}
+
+\begin{center}
+  \textbf{\LARGE Avery Chen} \\[2pt]
+  \href{mailto:avery.chen@example.com}{avery.chen@example.com} $|$ Chicago, IL $|$ \href{https://linkedin.com/in/avery-chen-example}{linkedin.com/in/avery-chen-example} $|$ \href{https://averychen.example.com}{averychen.example.com}
+\end{center}
+\vspace{-15pt}
+
+\section{Experience}
+
+\textbf{Brightline Analytics} -- {Senior Product Marketing Manager}
+\hfill \textit{Mar 2021 – Present}
+\begin{itemize}
+  \item Repositioned the core platform from dashboards to decision automation after 38 customer and lost-deal interviews; win rate against the main competitor rose from 24\% to 37\% over the next three quarters.
+  \item Led the launch of the forecasting module, the company's largest release of 2023: a 6-week plan across product, sales, and customer success that produced \$3.1M in new pipeline in its first quarter.
+  \item Co-led the 2024 pricing and packaging redesign with the heads of product and finance, moving from per-seat to usage tiers; average contract value rose 18\% the following year with no change in churn.
+  \item Built the company's first win/loss program: monthly third-party interviews, a tagged deal database, and a quarterly readout to the executive team; two pricing changes came out of it.
+  \item Manages 2 product marketing managers, hired both, and promoted one to senior in 2025.
+  \item Writes and maintains battlecards for 5 competitors; by CRM tagging, sales uses them in about 60\% of late-stage deals.
+  \item Runs quarterly sales enablement for a 45-person sales team: a messaging certification for new hires and a readiness session before every major release.
+  \item Owns relationships with two industry analyst firms; the platform was included in a major analyst evaluation for the first time in 2024.
+\end{itemize}
+\vspace{2pt}
+\textbf{Brightline Analytics} -- {Product Marketing Manager}
+\hfill \textit{Jun 2019 – Feb 2021}
+\begin{itemize}
+  \item Wrote the company's first messaging framework and personas from 24 customer interviews; the website, sales deck, and onboarding still use them.
+  \item Set up the launch process the company still runs: a tiered launch calendar and a one-page brief for every release.
+  \item Built the first sales deck, an ROI calculator, and 12 customer case studies; the case studies were cited in 30\% of 2020's closed-won deals.
+\end{itemize}
+\vspace{2pt}
+\textbf{Cobalt Freight Systems} -- {Product Marketing Manager}
+\hfill \textit{Aug 2017 – May 2019}
+\begin{itemize}
+  \item Launched the carrier mobile app to 3,000 trucking companies; adoption reached 41\% of active carriers in nine months, against a goal of 30\%.
+  \item Ran the company's first pricing survey, of 400 carriers, which set the mobile app's paid tier.
+  \item Ran quarterly roadmap reviews with the 8-member customer advisory board, alongside 2 product managers.
+\end{itemize}
+\vspace{2pt}
+\textbf{Harbor \& Pine} -- {Marketing Strategist}
+\hfill \textit{Jul 2014 – Jul 2017}
+\begin{itemize}
+  \item Led messaging and market research projects for 14 B2B clients in software, logistics, and industrial manufacturing.
+\end{itemize}
+\vspace{2pt}
+\section{Speaking \& Writing}
+
+Speaker, "Win/loss interviews sales will actually read," Chicago Product Marketing Meetup, 2024. \\
+Author, "Pricing is a positioning decision," guest post on a product marketing community blog, 2023.
+
+\section{Awards}
+
+Brightline Analytics company award for the forecasting launch, 2023.
+
+\section{Education}
+
+\textbf{Lakeshore University} \hfill Chicago, IL \\
+B.A. Economics \hfill May 2014
+\begin{itemize}
+  \item Minor in statistics.
+\end{itemize}
+\vspace{0pt}
+\textbf{Lakeshore University School of Business} \hfill Chicago, IL \\
+Certificate, Pricing Strategy \hfill Dec 2022
+\begin{itemize}
+  \item Evening program; capstone on usage-based pricing for B2B software.
+\end{itemize}
+\vspace{0pt}
+\section{Skills}
+
+\textbf{Product marketing:} positioning and messaging, launches, pricing and packaging, competitive intelligence, win/loss analysis, sales enablement, customer research \\
+\textbf{Management:} hiring, coaching, running a two-person team \\
+\textbf{Tools:} Salesforce, HubSpot, Gong, Figma, Looker, SQL for reporting queries
+
+
+% For the builder's slack report: the height the last page holds, the height
+% used so far, and one line's height.
+\par\typeout{RESUME-SLACK \the\pagegoal\space\the\pagetotal\space\the\baselineskip}
+\end{document}
