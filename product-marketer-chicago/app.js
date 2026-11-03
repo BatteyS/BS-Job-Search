@@ -1,5 +1,5 @@
-// The page. No framework and no build step: four tabs over /api, each a
-// sidebar and a content pane. Markdown is rendered with the small renderer at
+// The page. No framework and no build step: five tabs over /api, each a
+// sidebar and a content pane, apart from Setup's single column. Markdown is rendered with the small renderer at
 // the bottom, which covers what the digests and profile files use.
 //
 // The example demos (ui/build_demo.py) run this same file with no server:
@@ -50,7 +50,9 @@ const loaded = {};
 function showTab(name) {
   for (const b of document.querySelectorAll("nav button")) b.classList.toggle("active", b.dataset.tab === name);
   for (const t of document.querySelectorAll(".tab")) t.classList.toggle("active", t.id === "tab-" + name);
-  if (!loaded[name]) { loaded[name] = true; ({ digests: loadDigests, applications: loadApplications, runs: loadRuns, profile: loadProfile })[name](); }
+  // Setup checks again each time it is shown: setup runs elsewhere, in Runs.
+  if (name === "setup") loadSetup();
+  else if (!loaded[name]) { loaded[name] = true; ({ digests: loadDigests, applications: loadApplications, runs: loadRuns, profile: loadProfile })[name](); }
   location.hash = name;
 }
 
@@ -63,7 +65,7 @@ async function loadDigests() {
   list.replaceChildren();
   let digests;
   try { digests = await api("/api/digests"); } catch (e) { say(e.message, true); return; }
-  if (!digests.length) { list.append(el("p", { class: "muted" }, "No digests yet. Run /job-scan in Claude Code.")); return; }
+  if (!digests.length) { list.append(el("p", { class: "muted" }, "No digests yet. A scan writes one: Job scan, in the Runs tab.")); return; }
   for (const d of digests) {
     const counts = `${d.entries} roles · ${d.apply} apply · ${d.skip} skip` + (d.unmarked ? ` · ${d.unmarked} unmarked` : "") + (d.conflicts ? ` · ${d.conflicts} to settle` : "");
     list.append(el("button", { class: "item", "data-date": d.date, onclick: () => openDigest(d.date) }, d.date, el("small", {}, counts)));
@@ -228,6 +230,7 @@ async function loadRuns() {
   side.append(el("h3", {}, "Skills"));
   if (status.available) {
     side.append(el("p", { class: "muted small" }, DEMO ? DEMO.runsNote : `Claude Code ${status.version || ""} (${status.how})`));
+    side.append(pickRow());
     for (const s of skills) side.append(skillButton(s));
   } else {
     side.append(el("p", { class: "muted small" }, "Not available: " + status.reason));
@@ -244,7 +247,8 @@ async function loadRuns() {
 }
 
 function skillButton(s) {
-  const btn = el("button", { class: "item skill", "data-skill": s.name }, s.label, el("small", {}, s.about + (s.needs === "date" ? " (the digest open in Digests)" : "")));
+  const btn = el("button", { class: "item skill", "data-skill": s.name }, s.label, el("small", {}, s.about + (s.needs === "date" ? " (the digest open in Digests)" : "")), routeLine(s.route));
+  btn.route = s.route;
   btn.onclick = () => {
     if (s.needs !== "text") { startSkill(s.name, s.needs === "date" ? { date: currentDigest } : {}); return; }
     const box = el("textarea", { placeholder: "Paste the posting's URL, or the posting itself", rows: 4 });
@@ -273,12 +277,12 @@ async function loadPastRuns(side) {
   side.append(el("h3", {}, "Past runs"));
   for (const p of old.slice(0, 8)) {
     const when = new Date(p.started * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-    const btn = el("button", { class: "item" }, `${p.skill} · ${p.status}`, el("small", {}, when + (p.prompt ? " · " + p.prompt : "")));
+    const btn = el("button", { class: "item" }, `${p.skill} · ${p.status}`, el("small", {}, [when, p.route, p.cost ? `≈$${p.cost.toFixed(2)}` : "", p.prompt].filter(Boolean).join(" · ")));
     btn.onclick = () => {
       const box = el("textarea", { placeholder: "What next? This continues the same conversation.", rows: 3 });
       const go = el("button", { class: "action primary", onclick: async () => {
         if (!box.value.trim()) return;
-        try { const run = await api("/api/claude/resume", { method: "POST", body: JSON.stringify({ session_id: p.session_id, text: box.value.trim() }) }); form.remove(); attachRun(run, true); }
+        try { const run = await api("/api/claude/resume", { method: "POST", body: JSON.stringify({ session_id: p.session_id, text: box.value.trim(), ...activePick() }) }); form.remove(); attachRun(run, true); }
         catch (e) { say(e.message, true); }
       } }, "Resume");
       const form = el("div", { class: "skill-form" }, box, el("div", { class: "toolbar" }, go, el("button", { class: "action", onclick: () => form.remove() }, "Cancel")));
@@ -291,7 +295,7 @@ async function loadPastRuns(side) {
 async function startSkill(name, params) {
   if (params && "date" in params && !params.date) delete params.date;
   let run;
-  try { run = await api("/api/skills/" + name, { method: "POST", body: JSON.stringify(params || {}) }); }
+  try { run = await api("/api/skills/" + name, { method: "POST", body: JSON.stringify({ ...(params || {}), ...activePick() }) }); }
   catch (e) { say(e.message, true); return; }
   loaded.runs = true;
   attachRun(run, true);
@@ -342,8 +346,9 @@ async function attachClaudeRun(run, live) {
   const send = el("button", { class: "action primary" }, "Send");
   const replyBox = el("div", { class: "replybox", hidden: "" }, reply, send);
   const when = new Date(run.started * 1000).toLocaleTimeString();
+  const routed = run.route && run.route.label ? el("span", { class: "chip", title: run.route.why || "" }, run.route.label) : null;
   const panel = el("div", { class: "run claude", "data-run": run.id },
-    el("div", { class: "head" }, el("b", {}, run.name), el("span", { class: "muted" }, when), st, stop),
+    el("div", { class: "head" }, el("b", {}, run.name), routed, el("span", { class: "muted" }, when), st, stop),
     transcript, cardArea, replyBox);
   view.prepend(panel);
 
@@ -357,7 +362,7 @@ async function attachClaudeRun(run, live) {
     if (mine) activeClaude = { id: run.id, name: run.name, status: s };
     else if (activeClaude && activeClaude.id === run.id) activeClaude = null;
     refreshSkillButtons();
-    if (!mine) { if (loaded.digests) loadDigests(); if (loaded.applications) loadApplications(); }
+    if (!mine) { if (loaded.digests) loadDigests(); if (loaded.applications) loadApplications(); setupState(); }
   };
   setStatus(run.status);
 
@@ -375,6 +380,8 @@ async function attachClaudeRun(run, live) {
     switch (ev.kind) {
       case "status": setStatus(ev.status); break;
       case "init": transcript.append(el("div", { class: "note" }, `session ${ev.session_id || ""} · ${ev.model || ""}`)); break;
+      case "route": transcript.append(el("div", { class: "note" }, `${(ev.label || "").replace(" · ", " at ")} effort: ${ev.why}`)); break;
+      case "limits": refreshUsageSoon(); break;
       case "user": transcript.append(el("div", { class: "bubble user" }, ev.text)); break;
       case "text": transcript.append(el("div", { class: "bubble assistant md", html: markdown(ev.text) })); break;
       case "tool_use": {
@@ -388,7 +395,7 @@ async function attachClaudeRun(run, live) {
       }
       case "card": cardArea.replaceChildren(cardView(run.id, ev)); break;
       case "card_answered": cardArea.replaceChildren(); transcript.append(el("div", { class: "note" }, `${ev.decision === "deny" ? "Denied" : "Allowed"}`)); break;
-      case "turn_end": transcript.append(el("div", { class: "note" }, `turn ended · ${ev.num_turns ?? "?"} steps` + (ev.cost ? ` · $${ev.cost.toFixed(2)}` : ""))); break;
+      case "turn_end": setupState(); transcript.append(el("div", { class: "note" }, `turn ended · ${ev.num_turns ?? "?"} steps` + (ev.tokens ? ` · ${fmtTokens(ev.tokens)} tokens` : "") + (ev.cost ? ` · ≈$${ev.cost.toFixed(2)} so far at API prices` : ""))); break;
       case "error": transcript.append(el("div", { class: "bubble error" }, ev.message)); break;
     }
     transcript.scrollTop = transcript.scrollHeight;
@@ -463,6 +470,264 @@ function cardView(runId, card) {
     el("button", { class: "action", onclick: () => answer("deny") }, "Deny"));
   box.append(bar);
   return box;
+}
+
+// ------------------------------------------------------------ the route
+// Each run's model and effort come from ui/router.py: the skill, what it is
+// given, and how full the plan is. The pick here overrides it, for this
+// browser; "Auto" leaves it to the router.
+
+const MODELS = ["opus", "sonnet", "haiku"], EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+const PICK_KEY = "bs-job-search.pick";
+let pick = {};
+try { pick = JSON.parse(localStorage.getItem(PICK_KEY) || "{}") || {}; } catch (e) { pick = {}; }
+
+function activePick() {
+  const out = {};
+  for (const k of ["model", "effort"]) if (pick[k] && pick[k] !== "auto") out[k] = pick[k];
+  return out;
+}
+
+function pickRow() {
+  const select = (key, values) => {
+    const s = el("select", { "aria-label": key === "model" ? "Model" : "Effort" },
+      ...["auto", ...values].map(v => el("option", { value: v }, v === "auto" ? "Auto" : v[0].toUpperCase() + v.slice(1))));
+    s.value = pick[key] || "auto";
+    s.onchange = () => {
+      pick = { ...pick, [key]: s.value };
+      try { localStorage.setItem(PICK_KEY, JSON.stringify(pick)); } catch (e) { /* storage off: this page only */ }
+      for (const b of document.querySelectorAll("#run-commands .skill")) b.querySelector(".route").replaceWith(routeLine(b.route));
+    };
+    return s;
+  };
+  return el("div", { class: "pick", title: "Auto picks a model and effort for each run, and shows why on its button" },
+    el("label", {}, "Model ", select("model", MODELS)), el("label", {}, "Effort ", select("effort", EFFORTS)));
+}
+
+// A skill button's route: the router's, with the pick laid over it.
+function routeLine(route) {
+  if (!route) return el("small", { class: "route" }, "");
+  const p = activePick(), model = p.model || route.model, effort = p.effort || route.effort;
+  const why = p.model && p.effort ? "Your pick, above." : route.why + (p.model || p.effort ? "; the rest is your pick" : "");
+  return el("small", { class: "route", title: why }, `${model[0].toUpperCase() + model.slice(1)} · ${effort}`);
+}
+
+function fmtTokens(n) { return n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n || 0); }
+
+// ----------------------------------------------------------------- usage
+// The plan's usage windows in the header. Every request a run makes reports
+// them; between runs the server asks Claude Code's /usage, which calls no
+// model, so checking uses none of the plan.
+
+const usageEl = $("#usage");
+let usageTimer = null;
+
+function renderUsage(u) {
+  const names = u.names || {}, ws = u.windows || {};
+  const pct = w => Math.round(w.used * 100);
+  const known = Object.entries(ws).filter(([, w]) => typeof w.used === "number");
+  const shown = known.filter(([k]) => k === "five_hour" || k === "seven_day");
+  if (!shown.length) { usageEl.hidden = true; return; }
+  const worst = Math.max(...known.map(([, w]) => w.used));
+  usageEl.className = "usage" + (worst >= 0.95 ? " bad" : worst >= 0.8 ? " warn" : "");
+  usageEl.textContent = shown.map(([k, w]) => `${names[k] || k} ${pct(w)}%`).join(" · ");
+  const lines = known.map(([k, w]) => `${names[k] || k}: ${pct(w)}% used` + (w.reset ? " (it has reset since)" : w.resets_at ? `, resets ${new Date(w.resets_at * 1000).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}` : ""));
+  const t = u.runs && u.runs.today;
+  if (t && t.runs) lines.push("", `This page today: ${t.runs} run${t.runs === 1 ? "" : "s"}, ${fmtTokens(t.tokens)} tokens, ≈$${t.cost.toFixed(2)} at API prices`);
+  const ago = u.seen ? Math.max(0, Math.round((Date.now() / 1000 - u.seen) / 60)) : null;
+  lines.push("", `Your Claude plan's usage, as Claude Code reports it${ago === null ? "" : ago < 1 ? ", just now" : `, ${ago} min ago`}. Click to check again: checking uses none of it.`);
+  usageEl.title = lines.join("\n");
+  usageEl.hidden = false;
+}
+
+async function loadUsage(check = false) {
+  if (DEMO) return;
+  try {
+    let u = await api("/api/usage");
+    renderUsage(u);
+    if (check || !u.seen || Date.now() / 1000 - u.seen > 600) {
+      usageEl.classList.add("checking");
+      u = await api("/api/usage/check", { method: "POST" });
+      renderUsage(u);
+    }
+    refreshRoutes();
+  } catch (e) { if (check) say(e.message, true); }
+  finally { usageEl.classList.remove("checking"); }
+}
+
+// A full plan steps routes down, so the skill buttons follow the usage.
+async function refreshRoutes() {
+  if (!loaded.runs) return;
+  let skills;
+  try { skills = await api("/api/skills"); } catch (e) { return; }
+  for (const s of skills) {
+    const b = document.querySelector(`#run-commands .skill[data-skill="${s.name}"]`);
+    if (b) { b.route = s.route; b.querySelector(".route").replaceWith(routeLine(s.route)); }
+  }
+}
+usageEl.onclick = () => loadUsage(true);
+
+// A run reports usage on every request; read it once they settle.
+function refreshUsageSoon() { clearTimeout(usageTimer); usageTimer = setTimeout(() => loadUsage(), 1500); }
+
+// ----------------------------------------------------------------- setup
+// What a new copy needs, in order: Claude Code, the six files /setup writes,
+// then what the first scan and the first resume need. The page opens here
+// until the needed files are written and reviewed. The checks are doctor.py's;
+// the API keys are the one thing this tab writes itself.
+
+const KEY_FIELDS = { app_id: "App ID", app_key: "App key", email: "Email you registered with", api_key: "API key" };
+const CHECK_CHIP = { ok: "ok", MISSING: "bad", DRAFT: "warn" };
+
+// How far setup has got, from the fast route. Also counts what is left on the
+// tab's button, so the count stays right from any tab.
+async function setupState() {
+  let s;
+  try { s = await api("/api/setup"); } catch (e) { return null; }
+  const left = s.files.filter(f => f.state === "draft" || (f.state === "missing" && f.needed)).length;
+  $('nav button[data-tab="setup"]').replaceChildren("Setup", left ? el("span", { class: "count", title: `${left} of the files setup writes still to do` }, String(left)) : "");
+  return s;
+}
+
+async function loadSetup() {
+  const view = $("#setup-view");
+  const checking = () => el("div", {}, el("p", { class: "muted small" }, "Checking…"));
+  const parts = { claude: checking(), files: checking(), problems: el("div"), scan: checking(), resume: checking() };
+  const ready = el("div");
+  const start = el("button", { class: "action primary", disabled: "", onclick: () => startSkill("setup", {}) }, "Set up");
+  view.replaceChildren(
+    el("div", { class: "toolbar" }, el("h2", {}, "Set up"), el("button", { class: "action small", onclick: () => loadSetup() }, "Check again")),
+    DEMO ? el("p", { class: "banner" }, DEMO.setupNote) : "",
+    ready,
+    setupStep("1", "Claude Code", "The page runs your own Claude Code, with your own login, to do the interviewing, scoring and writing.", parts.claude),
+    setupStep("2", "Your profile", "Set up interviews you and writes these files. Every write to your resume facts, stories or profile shows you the exact text first and waits for your approval.", el("div", {}, parts.files, parts.problems)),
+    setupStep("3", "Before your first scan", "Two free job sources need a key. Each is saved to a gitignored file on this machine, never through Claude.", parts.scan),
+    setupStep("4", "Before your first resume", "LaTeX typesets resumes and letters. Setup does not need it, so it can install while you go.", parts.resume),
+  );
+
+  let claude = null, state = null;
+  const settle = () => {
+    start.disabled = !(claude && claude.available);
+    ready.replaceChildren(claude && claude.available && state && state.ready
+      ? el("div", { class: "ready" }, el("b", {}, "You are set up. "), "Run a scan whenever you like; every skill is in the Runs tab.",
+          el("div", { class: "toolbar" }, el("button", { class: "action primary", onclick: () => startSkill("job-scan", {}) }, "Job scan"), el("button", { class: "action", onclick: () => showTab("digests") }, "Digests")))
+      : "");
+  };
+  api("/api/claude/status").catch(e => ({ available: false, reason: e.message }))
+    .then(s => { claude = s; parts.claude.replaceChildren(...claudeView(s)); settle(); });
+  const stated = setupState().then(s => { state = s; parts.files.replaceChildren(...(s ? filesView(s, start) : [el("p", { class: "muted" }, "Could not read how far setup has got.")])); settle(); });
+
+  if (DEMO) { for (const k of ["scan", "resume"]) parts[k].replaceChildren(el("p", { class: "muted small" }, "Checked on your own copy.")); return; }
+  let checks;
+  try { checks = await api("/api/setup/checks"); }
+  catch (e) { parts.scan.replaceChildren(el("p", { class: "muted" }, e.message)); parts.resume.replaceChildren(); return; }
+  const rows = group => checks.checks.filter(r => r.group === group);
+  parts.scan.replaceChildren(...checks.keys.map(keyForm), el("ul", { class: "checks" }, ...rows("sources").map(checkRow)));
+  const latex = rows("latex");
+  parts.resume.replaceChildren(el("ul", { class: "checks" }, ...latex.map(checkRow)),
+    latex.some(r => r.status === "MISSING") ? el("p", { class: "muted small" }, "Run the install from a new terminal window. Once it is done, close the page's own window and start the page again: a page started before the install cannot find LaTeX.") : "");
+  // A file that is there but does not load, or Python missing a package: show it with the
+  // files. A file not written yet is already in the list above.
+  await stated;
+  const unwritten = new Set((state ? state.files : []).filter(f => f.state === "missing").map(f => f.path));
+  const broken = [...rows("python"), ...rows("profile")].filter(r => r.status === "MISSING" && !unwritten.has(r.what));
+  parts.problems.replaceChildren(broken.length ? el("ul", { class: "checks" }, ...broken.map(checkRow)) : "");
+}
+
+function setupStep(n, title, about, body) {
+  return el("section", { class: "step" }, el("div", { class: "num" }, n),
+    el("div", { class: "step-body" }, el("h3", {}, title), el("p", { class: "muted small" }, about), body));
+}
+
+function claudeView(s) {
+  if (DEMO) return [el("p", { class: "muted small" }, "On your own copy, this says whether Claude Code is ready, and the command to run if not.")];
+  if (s.available) return [el("p", {}, el("span", { class: "chip ok" }, "ready"), ` ${s.version || "Claude Code"} · ${s.how}` + (s.logged_in ? " · logged in" : ""))];
+  if (s.install) return [
+    el("p", {}, el("span", { class: "chip bad" }, "not installed"), " Install it from a new terminal window, leaving the page's own window open, then press Check again. It needs a paid Claude plan or an Anthropic Console account."),
+    command(s.install),
+    el("p", { class: "muted small", html: 'Other ways to install it are in <a href="https://code.claude.com/docs/en/setup" target="_blank" rel="noopener">Claude Code\'s setup guide</a>.' })];
+  if (s.login) return [
+    el("p", {}, el("span", { class: "chip bad" }, "not logged in"), " Run this once in a new terminal window, leaving the page's own window open. It opens your browser to sign in; then press Check again."),
+    command(s.login),
+    el("p", { class: "muted small" }, "The Claude desktop app's own login does not carry over to it.")];
+  return [el("p", {}, el("span", { class: "chip bad" }, "not available"), " " + (s.reason || ""))];
+}
+
+function filesView(s, start) {
+  const list = el("ul", { class: "checks" });
+  for (const f of s.files) {
+    const chip = f.state === "done" ? el("span", { class: "chip ok" }, "done")
+      : f.state === "draft" ? el("span", { class: "chip warn" }, "draft")
+      : el("span", { class: "chip" }, f.needed ? "to do" : "optional");
+    const more = f.state === "draft" ? " · written, not yet reviewed" : f.state === "missing" && !f.needed ? " · only cover letters need it" : "";
+    list.append(el("li", {}, chip, " ", el("code", {}, f.path), el("span", { class: "muted" }, ` · ${f.about}${more}`)));
+  }
+  const written = s.files.filter(f => f.state !== "missing").length;
+  const note = s.ready ? (written < s.files.length
+      ? "Everything a scan and a resume need is written. Set up again to add the stories for cover letters, or to change a file after a new job or a move."
+      : "All written and reviewed. Set up again to change one, after a new job or a move.")
+    : written ? "Set up picks up where it stopped, and asks before changing anything already written."
+    : "Doing it properly takes an hour or more, most of it on your resume: every tailored resume is chosen from what you give it here. You can stop after any step, and Set up picks up where you left off.";
+  // The resume setup builds to check master.md: the skill cannot show a PDF, so the tab
+  // does, inline as the Applications tab does, since not every browser opens a new tab.
+  let test = "";
+  if (s.test_resume) {
+    const url = "/api/setup/test-resume?v=" + s.test_resume.modified;
+    const shown = el("div");
+    const open = el("a", { href: url, onclick: ev => {
+      ev.preventDefault();
+      const showing = !!shown.firstChild;
+      shown.replaceChildren(showing ? "" : el("iframe", { class: "pdf", src: url }));
+      open.textContent = showing ? "Open the test resume" : "Close the test resume";
+    } }, "Open the test resume");
+    test = el("div", {}, el("p", { class: "small" }, open, el("span", { class: "muted" }, " · every bullet in master.md, built by setup to check it")), shown);
+  }
+  return [list, test, el("div", { class: "toolbar" }, start, el("span", { class: "muted small" }, note))];
+}
+
+function checkRow(r) {
+  return el("li", {}, el("span", { class: "chip " + (CHECK_CHIP[r.status] || "") }, r.status.toLowerCase()), " ", el("b", {}, r.what),
+    r.detail ? el("span", { class: "muted" }, " · " + r.detail) : null,
+    r.fix && r.status !== "ok" ? el("div", { class: "fix" }, r.fix) : null);
+}
+
+// A command to run in a terminal, with a button that copies it. Some browsers
+// refuse the clipboard API to a page like this one; then the old copy command,
+// and failing that, the command selected for the person to copy.
+function command(text) {
+  const code = el("code", {}, text);
+  const copy = el("button", { class: "action small", onclick: async () => {
+    try { await navigator.clipboard.writeText(text); say("Copied"); return; } catch (e) { /* below */ }
+    const range = document.createRange();
+    range.selectNodeContents(code);
+    const sel = window.getSelection();
+    sel.removeAllRanges(); sel.addRange(range);
+    let done = false;
+    try { done = document.execCommand("copy"); } catch (e) { /* not supported */ }
+    say(done ? "Copied" : "Selected: press Ctrl+C, or ⌘C on a Mac, to copy it");
+  } }, "Copy");
+  return el("div", { class: "cmd" }, code, copy);
+}
+
+// One source's key: typed here, saved by the server into the source's
+// gitignored file. The page never reads a saved key back.
+function keyForm(k) {
+  const inputs = k.fields.map(f => el("input", { type: f.endsWith("key") ? "password" : "text", placeholder: KEY_FIELDS[f] || f, "aria-label": `${k.label} ${KEY_FIELDS[f] || f}`, autocomplete: "off", spellcheck: "false" }));
+  const save = el("button", { class: "action" }, k.saved ? "Replace" : "Save");
+  save.onclick = async () => {
+    const values = Object.fromEntries(k.fields.map((f, i) => [f, inputs[i].value.trim()]));
+    if (Object.values(values).some(v => !v)) { say(`Fill in both ${k.label} fields`, true); return; }
+    save.disabled = true;
+    try { const r = await api("/api/keys/" + k.source, { method: "PUT", body: JSON.stringify(values) }); say(`Saved to ${r.saved}`); loadSetup(); }
+    catch (e) { say(e.message, true); save.disabled = false; }
+  };
+  for (const i of inputs) i.onkeydown = ev => { if (ev.key === "Enter") save.click(); };
+  const on = k.on === true ? " · on in filters.yaml" : k.on === false ? " · off in filters.yaml" : "";
+  return el("div", { class: "key" },
+    el("div", {}, el("span", { class: "chip " + (k.saved ? "ok" : k.on ? "bad" : "") }, k.saved ? "saved" : "no key"), " ", el("b", {}, k.label),
+      el("span", { class: "muted small" }, on + " · "), el("a", { href: k.signup, target: "_blank", rel: "noopener" }, "register free"),
+      k.saved ? el("span", { class: "muted small" }, ` · in ${k.file}`) : null),
+    el("div", { class: "key-form" }, ...inputs, save));
 }
 
 // --------------------------------------------------------------- profile
@@ -596,6 +861,12 @@ function demoMark(date, n, marks) {
 
 if (DEMO && DEMO.banner) document.body.prepend(el("div", { class: "demo-banner", html: DEMO.banner }));
 
-const TABS = ["digests", "applications", "runs", "profile"];
-showTab(TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "digests");
-window.addEventListener("hashchange", () => { const t = location.hash.slice(1); if (TABS.includes(t)) showTab(t); });
+// The first tab: the one the address names, else Setup until the profile is
+// written and reviewed, then Digests.
+const TABS = ["setup", "digests", "applications", "runs", "profile"];
+loadUsage();
+setupState().then(s => {
+  const asked = location.hash.slice(1);
+  showTab(TABS.includes(asked) ? asked : s && !s.ready ? "setup" : "digests");
+});
+window.addEventListener("hashchange", () => { const t = location.hash.slice(1); if (TABS.includes(t) && !$("#tab-" + t).classList.contains("active")) showTab(t); });
