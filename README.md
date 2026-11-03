@@ -31,7 +31,7 @@ uv sync
 ```
 
 ```bash
-uv sync --extra pdf --extra scraped
+uv sync --extra pdf --extra scraped --extra ui
 ```
 
 Add `--extra pdf` to read a PDF resume when building your profile, and `--extra scraped`
