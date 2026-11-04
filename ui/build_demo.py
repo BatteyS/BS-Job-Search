@@ -36,6 +36,7 @@ sys.path.insert(0, HERE)
 import claude_run  # noqa: E402
 import core  # noqa: E402
 import digest_applies  # noqa: E402  (core put scripts/ on the path)
+import latex  # noqa: E402
 import tracker  # noqa: E402
 
 ROOT = core.ROOT
@@ -242,7 +243,7 @@ def write_landing(out: str, built: list[tuple[str, dict]]) -> None:
     with open(os.path.join(out, "index.html"), "w", encoding="utf-8") as fh:
         fh.write(LANDING.replace("@CARDS@", cards).replace("@REPO@", REPO_URL))
     # GitHub Pages runs Jekyll otherwise, which drops files whose names start with _.
-    open(os.path.join(out, ".nojekyll"), "w").close()
+    open(os.path.join(out, ".nojekyll"), "w", encoding="utf-8").close()
 
 
 def build(out: str, pdf: bool = True) -> list[str]:
@@ -272,7 +273,7 @@ def main() -> int:
     ap.add_argument("--no-pdf", action="store_true", help="skip building resumes and letters")
     args = ap.parse_args()
     pdf = not args.no_pdf
-    if pdf and not shutil.which("pdflatex"):
+    if pdf and not latex.find()[0]:
         print("pdflatex not found: building the demos without their PDFs")
         pdf = False
     names = build(args.out, pdf)

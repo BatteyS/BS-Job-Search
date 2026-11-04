@@ -147,8 +147,10 @@ prep.md`, with each answer's sources quoted in full beneath it.
 
 | Tool | Does |
 |---|---|
+| `install.sh` | Sets up a Mac in one step: Apple's Command Line Tools (for git), uv, Claude Code and its sign-in, a clone of the template in `~/job-search` and its packages, LaTeX, and Job Search on the Desktop. Only what is missing, with no password, and safe to run again. |
 | `/setup` | Interviews a new user and writes their profile, starting with the resume facts. |
 | `doctor.py` | Checks the machine, the profile, and the keys, and says what to fix. |
+| `install_latex.py` | Installs LaTeX without a password: TinyTeX in the user's own folder, with the packages the templates load, unless a TeX that has them is already there. `latex.py` finds that TeX wherever it is, for the builders and `doctor.py`. |
 | `extract_text.py` | Pulls the text out of a .docx, PDF, or text resume. |
 | `try_titles.py` | Checks job titles against the clusters, offline. |
 | `digest_applies.py` | Reads a marked digest: the roles to apply to and letters to write, the verdicts as a `feedback.md` section (`--verdicts`), and every apply's posting (`--fetch`). `--outcomes` lists what came of each application, beside its digest entry. |
@@ -161,7 +163,8 @@ prep.md`, with each answer's sources quoted in full beneath it.
 ## The page
 
 `ui/server.py` serves a page on this machine only (`uv run ui/server.py`, or the
-`start.command` and `start.cmd` files that run it) for setup and the work between skills.
+`start.command` and `start.cmd` files that run it in a terminal, or Job Search on a Mac's
+Desktop) for setup and the work between skills.
 Its Setup tab shows `doctor.py`'s checks, how far `/setup` has got, and a form that saves
 the API keys to their gitignored files; the page opens on it until the profile is written
 and reviewed. The rest is reading a digest and ticking its boxes, which it writes back
@@ -203,6 +206,23 @@ Nothing guards the page but where it listens, so one check runs before every rou
 site that points its own name at this machine (DNS rebinding), and one that carries an
 Origin must carry the page's own, which stops another site's form or script from starting
 a run or answering a card.
+
+On a Mac, `install.sh` puts Job Search on the Desktop: an AppleScript applet, built on the
+machine by `osacompile` and so never quarantined, whose only content is the path of the
+copy, in `Contents/Resources/open.sh`. It runs `ui/launch.sh` there, which keeps everything
+that may change in the copy, where updates reach it. The launcher builds the PATH a Finder
+launch lacks, opens the page if this copy's is already up, and otherwise starts it in the
+background on the first free port from 8765, with `--idle-exit 10`: the page asks
+`/api/health` once a minute while any tab has it open, so the server stops ten minutes
+after the last tab closes, though never while a run is working (starting, running, or
+waiting on a card). A skill whose turn is over waits for a reply but holds nothing: it
+does not keep the page up or stop a restart, the next skill started ends it, and Past
+runs resumes its conversation from Claude Code's own record. A page the launcher started knows
+it (`BS_LAUNCHER`), so after an update to its own code it can restart itself: it starts
+`launch.sh --restart` on its own, stops, and the launcher starts it again through
+`uv run`, which installs what the update added. The tab reloads itself once `/api/health`
+reports a new start time, and a tab whose server has gone says so and reconnects the same
+way.
 
 `ui/build_demo.py` builds the same page as static files for each example profile, from
 its `examples/<name>/demo/` folder: it lays the example out like a copy of this repo,

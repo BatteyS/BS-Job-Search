@@ -45,6 +45,9 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import latex  # noqa: E402
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MASTER = os.path.join(ROOT, "content/master.md")
 CONTACT = os.path.join(ROOT, "content/contact.local.md")
@@ -563,10 +566,12 @@ def render(front: dict, body: str, density: dict) -> str:
 
 
 def compile_pdf(texpath: str) -> tuple[bool, int, str]:
+    """Build with the pdflatex scripts/latex.py picks: one that has every
+    package, wherever it is installed, so PATH need not name it."""
     os.makedirs(BUILD, exist_ok=True)
     try:
         r = subprocess.run(
-            ["pdflatex", "-interaction=nonstopmode", "-halt-on-error",
+            [latex.pdflatex(), "-interaction=nonstopmode", "-halt-on-error",
              "-file-line-error", "-output-directory", BUILD, texpath],
             capture_output=True, text=True, timeout=180)
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:

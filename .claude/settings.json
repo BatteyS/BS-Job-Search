@@ -27,7 +27,13 @@
       "Bash(uv run python scripts/try_titles.py:*)",
       "Edit(/digests/**)",
       "Edit(/data/**)",
-      "Edit(/profile/feedback.md)"
+      "Edit(/profile/feedback.md)",
+      "Bash(python scripts/build_prep.py:*)",
+      "Bash(uv run python scripts/build_prep.py:*)",
+      "Edit(/profile/clusters.yaml)",
+      "Edit(/profile/filters.yaml)",
+      "Edit(/content/contact.local.md)",
+      "Edit(/sources/companies.yaml)"
     ],
     "ask": [
       "Edit(/profile/profile.md)",

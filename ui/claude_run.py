@@ -400,6 +400,7 @@ class ClaudeRun:
         self.pending: dict | None = None
         self.session_id: str | None = resume
         self.started = time.time()
+        self.updated = self.started   # its last change of status
         self.changed = threading.Condition()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._inbox: asyncio.Queue | None = None
@@ -418,7 +419,7 @@ class ClaudeRun:
 
     def summary(self) -> dict:
         return {"id": self.id, "name": self.name, "kind": "claude", "status": self.status,
-                "started": self.started, "session_id": self.session_id,
+                "started": self.started, "updated": self.updated, "session_id": self.session_id,
                 "pending": self.pending, "lines": len(self.events), "route": self.route,
                 "tokens": self.tokens, "cost": self.cost}
 
@@ -518,6 +519,7 @@ class ClaudeRun:
     def _set_status(self, status: str) -> None:
         with self.changed:
             self.status = status
+            self.updated = time.time()
         self._emit("status", status=status)
         index_upsert({"id": self.id, "skill": self.name, "session_id": self.session_id,
                       "started": self.started, "status": status, "prompt": self.prompt[:200],
@@ -644,12 +646,53 @@ def login_command(cli: str | None) -> str:
     return f'"{cli}" auth login'
 
 
+# The plan's usage windows, as a failed turn names the one that is used up.
+LIMIT_NAMES = {"five_hour": "5-hour session", "seven_day": "weekly",
+               "seven_day_opus": "weekly Opus", "seven_day_sonnet": "weekly Sonnet"}
+
+
+def _when(ts: float, now: float | None = None) -> str:
+    """A reset time as a person reads it: at 3:40 PM, or on Nov 7 at 10:59 PM."""
+    at = time.localtime(ts)
+    clock = time.strftime("%I:%M %p", at).lstrip("0")
+    if time.strftime("%Y-%m-%d", at) == time.strftime("%Y-%m-%d", time.localtime(now)):
+        return f"at {clock}"
+    return f"on {time.strftime('%b', at)} {at.tm_mday} at {clock}"
+
+
+def limit_reached(windows: dict | None = None, now: float | None = None) -> str:
+    """Which of the plan's windows is used up and when it resets, from the
+    rate-limit events Claude Code reports, or "" when none is."""
+    windows = usage.windows(now) if windows is None else windows
+    for name, w in windows.items():
+        if not isinstance(w, dict) or w.get("reset"):
+            continue
+        if w.get("status") == "rejected" or (w.get("used") or 0) >= 1:
+            what = LIMIT_NAMES.get(name, name.replace("_", " "))
+            resets = w.get("resets_at")
+            return (f"Your Claude plan's {what} limit is used up"
+                    + (f"; it resets {_when(resets, now)}." if isinstance(resets, (int, float))
+                       else "."))
+    return ""
+
+
 def _explain(result_text: str, cli: str | None = None) -> str:
-    if "Not logged in" in (result_text or ""):
+    text = result_text or ""
+    low = text.lower()
+    said = f" (Claude Code said: {text.strip()})" if text.strip() else ""
+    if "not logged in" in low:
         return ("Claude Code is not logged in. Run this once in a terminal; it opens your "
                 f"browser to sign in: {login_command(cli)}  The Claude desktop app's own "
                 "login does not carry over to it.")
-    return result_text or "the turn ended with an error"
+    limit = limit_reached()
+    if limit or ("limit" in low and any(w in low for w in ("usage", "reached", "rate"))):
+        return ((limit or "Your Claude plan's usage limit is reached.")
+                + " Once it resets, pick this run up again from Past runs in the Runs tab; "
+                "the header shows how much of the plan is used." + said)
+    if "credit balance" in low:
+        return ("This Anthropic Console account has run out of credit. Add some at "
+                "console.anthropic.com, then pick this run up again from Past runs." + said)
+    return text or "the turn ended with an error"
 
 
 def start_skill(name: str, params: dict | None = None, resume: str | None = None,

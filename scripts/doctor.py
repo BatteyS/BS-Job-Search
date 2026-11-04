@@ -18,25 +18,22 @@ import os
 import platform
 import re
 import shutil
-import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import latex  # noqa: E402
 
 OS = platform.system()          # Darwin, Windows, Linux
 
-# Packages the resume and letter templates load, by file, with the CTAN package
-# that provides each.
-LATEX_FILES = {"geometry.sty": "geometry", "newtxtext.sty": "newtx",
-               "enumitem.sty": "enumitem", "hyperref.sty": "hyperref",
-               "titlesec.sty": "titlesec"}
+# The no-password install: TinyTeX in the user's own folder, with the packages.
+INSTALL_LATEX = ("press Install LaTeX on the page's Setup tab, or run: "
+                 "uv run python scripts/install_latex.py  (TinyTeX, installed in your home "
+                 "folder, with no password)")
 
 FIX = {
     "latex": {
-        "Darwin": "install BasicTeX (brew install --cask basictex, or the installer at "
-                  "tug.org/mactex), open a new terminal, then run: sudo tlmgr update --self && "
-                  "sudo tlmgr install enumitem titlesec newtx fontaxes xstring kastrup tex-gyre",
+        "Darwin": INSTALL_LATEX,
         "Windows": "install MiKTeX from miktex.org/download, and set it to install missing "
                    "packages on the fly when its installer asks (or later, in MiKTeX Console's "
                    "Settings): the first resume build then fetches them without stopping to ask",
@@ -44,8 +41,9 @@ FIX = {
                  "texlive-fonts-extra (or your distribution's equivalent)",
     },
     "latex_packages": {
-        "Darwin": "sudo tlmgr update --self && sudo tlmgr install enumitem titlesec newtx "
-                  "fontaxes xstring kastrup tex-gyre",
+        "Darwin": INSTALL_LATEX + ". It leaves this TeX as it is. Or, with an admin "
+                  "password: sudo tlmgr update --self && sudo tlmgr install "
+                  + " ".join(latex.PACKAGES),
         "Windows": "MiKTeX installs them on the first build when it is set to install missing "
                    "packages on the fly (MiKTeX Console, Settings); or add them there by hand",
         "Linux": "sudo apt install texlive-latex-extra texlive-fonts-extra",
@@ -119,26 +117,22 @@ def check_python() -> None:
 
 
 def check_latex() -> None:
-    pdflatex = shutil.which("pdflatex")
+    """Wherever LaTeX is: on PATH, in TinyTeX, or in /Library/TeX/texbin, so a
+    page started before the install sees it (scripts/latex.py)."""
+    pdflatex, missing = latex.find()
     if not pdflatex:
         report("MISSING", "pdflatex (builds resumes and letters)", "", FIX["latex"].get(OS, ""))
         return
     report("ok", "pdflatex", pdflatex)
-    kpse = shutil.which("kpsewhich")
-    if not kpse:
+    if not latex.tool("kpsewhich", pdflatex):
         report("optional", "LaTeX package check",
                "kpsewhich not found, so packages are checked on the first build instead")
         return
-    missing = []
-    for f, pkg in LATEX_FILES.items():
-        r = subprocess.run([kpse, f], capture_output=True, text=True)
-        if not r.stdout.strip():
-            missing.append(pkg)
     if missing:
-        report("MISSING", "LaTeX packages", ", ".join(sorted(set(missing))),
-               FIX["latex_packages"].get(OS, ""))
+        report("MISSING", "LaTeX packages", ", ".join(missing),
+               INSTALL_LATEX if latex.is_tinytex(pdflatex) else FIX["latex_packages"].get(OS, ""))
     else:
-        report("ok", "LaTeX packages", ", ".join(sorted(set(LATEX_FILES.values()))))
+        report("ok", "LaTeX packages", ", ".join(latex.PACKAGES))
 
 
 # ---------------------------------------------------------------- profile

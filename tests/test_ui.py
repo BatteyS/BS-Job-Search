@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 import stat
+import subprocess
 import sys
 
 import pytest
@@ -350,7 +351,8 @@ def test_the_checks_leave_the_keys_to_the_form(fresh):
 
 def test_runs_stream_output_and_check_their_arguments(repo, monkeypatch):
     runs = core.Runs()
-    assert [c["name"] for c in runs.commands()] == ["doctor", "applies", "fetch", "outcomes"]
+    names = ["doctor", "applies", "fetch", "outcomes"] + ([] if sys.platform == "win32" else ["latex"])
+    assert [c["name"] for c in runs.commands()] == names
     with pytest.raises(ValueError):
         runs.start("rm")
     with pytest.raises(ValueError):
@@ -538,3 +540,109 @@ def test_the_copys_routes_are_behind_the_same_check(tmp_path, monkeypatch):
         assert _ask(server.app, method, path, {"host": "rebind.attacker.example:8765"}) == 403
     assert _ask(server.app, "POST", "/api/copy/update", page) == 409
     assert _ask(server.app, "POST", "/api/copy/link", page) == 409
+
+
+def test_idle_exit_waits_for_silence_and_for_runs_to_end():
+    now = [0.0]
+    idle = core.Idle(clock=lambda: now[0])
+    runs = core.Runs()
+    assert not idle.should_exit(10, runs)
+    now[0] = 599
+    assert not idle.should_exit(10, runs)
+    now[0] = 600
+    assert idle.should_exit(10, runs)
+    assert not idle.should_exit(0, runs)          # 0 means never
+
+    class Going:
+        id, name, status = "r1", "scan", "running"
+    runs.add(Going())
+    assert not idle.should_exit(10, runs)         # a working run keeps it up
+    Going.status = "waiting"                      # on a card, for whoever comes back
+    assert not idle.should_exit(10, runs)
+    Going.status = "idle"                         # its turn is over: Past runs resumes it
+    assert idle.should_exit(10, runs)
+    Going.status = "done"
+    assert idle.should_exit(10, runs)
+    idle.touch()
+    assert not idle.should_exit(10, runs)
+
+
+def test_only_a_page_the_launcher_started_restarts_itself(tmp_path, monkeypatch):
+    """Job Search on the Desktop runs ui/launch.sh, which tells the server where
+    it is; a page started in a terminal is restarted there, by hand."""
+    started = []
+    popen = lambda argv, **kw: started.append((argv, kw))   # noqa: E731
+    runs = core.Runs()
+    monkeypatch.delenv("BS_LAUNCHER", raising=False)
+    assert core.launcher() is None
+    with pytest.raises(core.Stop, match="terminal"):
+        core.restart(8765, runs, popen=popen)
+
+    launch = tmp_path / "launch.sh"
+    launch.write_text("#!/bin/sh\n")
+    monkeypatch.setenv("BS_LAUNCHER", str(launch))
+    assert core.launcher() == str(launch)
+    core.restart(8766, runs, popen=popen)
+    (argv, kw), = started
+    assert argv == ["/bin/sh", str(launch), "--restart", "8766"]
+    assert kw["start_new_session"] is True   # it outlives the server that started it
+
+    class Going:
+        id, name, status = "r1", "setup", "waiting"
+    runs.add(Going())
+    with pytest.raises(core.Stop, match="still working"):
+        core.restart(8766, runs, popen=popen)
+    assert len(started) == 1
+    Going.status = "idle"                         # a finished turn does not hold it
+    core.restart(8766, runs, popen=popen)
+    assert len(started) == 2
+
+
+def test_starting_a_skill_ends_one_that_waits_for_a_reply(monkeypatch):
+    """One skill works at a time, but one whose turn is over holds nothing: the
+    next skill ends it, and Past runs can pick its conversation up again."""
+    import claude_run
+
+    class Old:
+        id, name, status = "r1", "job-scan", "idle"
+        def summary(self):
+            return {"kind": "claude"}
+        def stop(self):
+            Old.status = "done"
+
+    class New(Old):
+        id, name, status = "r2", "tailor-resume", "starting"
+    monkeypatch.setattr(claude_run, "start_skill", lambda *a, **k: New())
+    runs = core.Runs()
+    runs.add(Old())
+    assert runs.start_skill("tailor-resume").id == "r2"
+    assert Old.status == "done"
+    Old.status = "running"
+    with pytest.raises(RuntimeError, match="still running"):
+        runs.start_skill("cover-letter")
+
+
+def test_what_a_run_filed_is_listed_by_when_it_was_written(repo):
+    apps = repo / "Applications"
+    resume = apps / "Acme Energy" / "Project Engineer.pdf"
+    nested = apps / "_Not employers" / "Sent to a friend" / "Resume.pdf"
+    for path, when in ((resume, 1000.0), (nested, 2000.0)):
+        os.utime(path, (when, when))
+    os.utime(apps / "Acme Energy" / "Project Engineer.tex", (10.0, 10.0))
+    os.utime(apps / "Acme Energy" / "notes.docx", (10.0, 10.0))
+    got = core.filed(500)
+    assert [(f["company"], f["name"]) for f in got] == [
+        ("_Not employers/Sent to a friend", "Resume.pdf"), ("Acme Energy", "Project Engineer.pdf")]
+    assert [f["name"] for f in core.filed(500, until=1500)] == ["Project Engineer.pdf"]
+    for f in got:   # each opens where the Applications tab opens it
+        assert core.application_file(f["company"], f["name"])
+
+
+def test_the_launcher_and_installer_are_plain_sh():
+    """Both run under the sh every Mac has, and under dash, the strictest."""
+    for name in ("install.sh", "ui/launch.sh"):
+        for shell in ("sh", "bash", "dash"):
+            path = shutil.which(shell)
+            if path:
+                r = subprocess.run([path, "-n", os.path.join(ROOT, name)], capture_output=True, text=True)
+                assert r.returncode == 0, f"{shell} -n {name}: {r.stderr}"

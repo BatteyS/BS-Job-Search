@@ -40,9 +40,7 @@ import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import scan_config  # noqa: E402
-from ats_adapters import Job, iso, strip_html  # noqa: E402
-
-from datetime import datetime, timezone  # noqa: E402
+from ats_adapters import Job, strip_html  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CREDS = os.path.join(ROOT, "sources/adzuna.local.yaml")

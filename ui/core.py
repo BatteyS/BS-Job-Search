@@ -5,8 +5,9 @@ here reads this copy's own files and runs this copy's own scripts, and nothing
 else: the file reads are limited to the folders named below, the only writes
 are a digest's boxes, feedback.md's verdicts, the statuses in
 profile/applications.yaml and the two key files, and the only commands are the
-ones in COMMANDS, with their arguments checked, and the git commands in the
-last section, which keep the copy current and backed up.
+ones in COMMANDS, with their arguments checked, the git commands in the last
+section, which keep the copy current and backed up, and ui/launch.sh, which
+starts the page again when Job Search on the Desktop started it.
 
 The page does what a person does between skills: reads a digest and marks it,
 finds what was filed under Applications/ and records what came of each
@@ -23,6 +24,7 @@ import contextlib
 import datetime as dt
 import json
 import os
+import platform
 import re
 import subprocess
 import sys
@@ -48,6 +50,9 @@ RE_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 # What /api/health calls this page, so a second start can tell it from
 # anything else on the port.
 APP_NAME = "BS Job Search"
+# When this server started: a page tells a server that restarted from the one
+# it loaded from by this.
+STARTED = time.time()
 
 # The files the Profile tab shows, read-only. contact.local.md is left out: it
 # holds nothing the page needs, and it is the one file with contact details.
@@ -288,6 +293,34 @@ def application_file(company: str, name: str) -> str:
     return path
 
 
+def filed(since: float, until: float | None = None) -> list[dict]:
+    """The files written under Applications/ from `since` to `until` (times in
+    seconds), newest first, where application_file() opens them: the run view
+    lists what a skill run filed. Each names its folder and file as
+    list_applications() does."""
+    out = []
+    if not os.path.isdir(APPS):
+        return out
+    for company in os.listdir(APPS):
+        top = os.path.join(APPS, company)
+        if company.startswith(".") or not os.path.isdir(top):
+            continue
+        folders = [(company, top)]
+        if company.startswith("_"):   # one level down, as the page shows them
+            folders += [(f"{company}/{s}", os.path.join(top, s)) for s in os.listdir(top)
+                        if not s.startswith(".") and os.path.isdir(os.path.join(top, s))]
+        for name, folder in folders:
+            for fn in os.listdir(folder):
+                path = os.path.join(folder, fn)
+                if fn.startswith(".") or not os.path.isfile(path):
+                    continue
+                mtime = os.path.getmtime(path)
+                if mtime >= since and (until is None or mtime <= until):
+                    out.append({"company": name, "name": fn, "modified": mtime,
+                                "viewable": os.path.splitext(fn)[1].lower() in VIEWABLE})
+    return sorted(out, key=lambda f: -f["modified"])
+
+
 def posting_path(company: str, title: str) -> str:
     """The posting filed for one application, Applications/<company>/<title> -
     posting.txt, or an error: what /interview-prep is started for. Only an
@@ -372,7 +405,8 @@ def setup_checks() -> dict:
     with _checking:
         rows = doctor.run_checks(page=False)
     keyed = {f"{label} key" for label, *_ in doctor.KEYS.values()}
-    return {"checks": [r for r in rows if r["what"] not in keyed], "keys": key_status()}
+    return {"checks": [r for r in rows if r["what"] not in keyed], "keys": key_status(),
+            "latex_install": "latex" in COMMANDS}
 
 
 def _filters() -> dict | None:
@@ -528,6 +562,10 @@ COMMANDS: dict[str, tuple[str, str, object]] = {
     "outcomes": ("Outcomes", "What came of each application, as the next scan reads it",
                  lambda p: _script("digest_applies", "--outcomes")),
 }
+if platform.system() != "Windows":   # where Windows has MiKTeX instead
+    COMMANDS["latex"] = ("Install LaTeX",
+                         "TinyTeX and the packages the templates use, in your home folder, "
+                         "with no password", lambda p: _script("install_latex"))
 
 
 class Run:
@@ -592,6 +630,11 @@ class Run:
                 "lines": len(self.lines)}
 
 
+# What a run is doing that nothing should cut off. "idle", a skill whose turn
+# has ended, is not among them.
+WORKING = ("starting", "running", "waiting")
+
+
 class Runs:
     """The runs this server has started, newest last: scripts (Run) and skills
     (claude_run.ClaudeRun), which share id, name, status, follow() and summary()."""
@@ -618,8 +661,10 @@ class Runs:
                     resume: str | None = None, prompt: str | None = None):
         import claude_run   # here, not at the top: it needs the Agent SDK only when a run starts
         active = self.active_claude()
-        if active is not None:
+        if active is not None and active.status in WORKING:
             raise RuntimeError(f"{active.name} is still {active.status}; end it first")
+        if active is not None:   # idle: its turn is over, and Past runs can resume it
+            active.stop()
         run = claude_run.start_skill(name, params, resume=resume, prompt=prompt)
         self.add(run)
         return run
@@ -646,6 +691,66 @@ class Runs:
     def list(self) -> list[dict]:
         with self._lock:
             return [r.summary() for r in self._runs.values()]
+
+    def working(self) -> bool:
+        """Whether any run, script or skill, is working: starting, running, or
+        waiting on a card. A skill whose turn has ended and waits for a reply is
+        idle, not working: it holds nothing open, and Past runs picks its
+        conversation up again after it has been ended."""
+        with self._lock:
+            return any(r.status in WORKING for r in self._runs.values())
+
+
+# ----------------------------------------------------------------- restart
+# A page started by ui/launch.sh (Job Search on the Desktop) has no window to
+# close and start again, so it restarts itself: the launcher, started on its
+# own, waits for this server to stop, then starts it again on the same port,
+# through `uv run`, which installs whatever an update added.
+
+RESTART_BY_HAND = ("This page was started in a terminal, so it restarts there: stop it with "
+                   "Ctrl+C in that window (or close the window), then start it the same way again.")
+
+
+def launcher() -> str | None:
+    """ui/launch.sh, when that is what started this server."""
+    path = os.environ.get("BS_LAUNCHER")
+    return path if path and os.path.isfile(path) else None
+
+
+def restart(port: int, runs: "Runs", popen=subprocess.Popen) -> None:
+    """Start the launcher that will start this page again once it has stopped.
+    The caller stops the server after answering."""
+    path = launcher()
+    if not path:
+        raise Stop(RESTART_BY_HAND)
+    if runs.working():
+        raise Stop("A run is still working in the Runs tab. Let it finish, or stop it, then "
+                   "restart: a skill's conversation can be picked up again from Past runs.")
+    popen(["/bin/sh", path, "--restart", str(port)], cwd=ROOT, stdin=subprocess.DEVNULL,
+          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+class Idle:
+    """How long since the page last asked the server for anything. An open
+    page asks at least once a minute (app.js), so a long silence means no tab
+    has it open, and `server.py --idle-exit` stops the server then."""
+
+    def __init__(self, clock=time.monotonic) -> None:
+        self._clock = clock
+        self._last = clock()
+
+    def touch(self) -> None:
+        self._last = self._clock()
+
+    def seconds(self) -> float:
+        return self._clock() - self._last
+
+    def should_exit(self, minutes: float, runs: "Runs") -> bool:
+        """True once nothing has asked for `minutes` and no run is working: a
+        working run keeps the server up, since stopping it would cut the run
+        off. An idle conversation does not, or one finished skill would keep
+        the page up for good; Past runs picks it up again."""
+        return minutes > 0 and self.seconds() >= minutes * 60 and not runs.working()
 
 
 # ------------------------------------------------------- updates and backup

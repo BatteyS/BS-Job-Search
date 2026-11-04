@@ -537,3 +537,23 @@ def test_a_run_stopped_before_it_starts_never_opens_a_session(monkeypatch, tmp_p
     run.start()
     run._thread.join(timeout=3)
     assert not opened.is_set() and run.status == "stopped"
+
+
+def test_a_turn_that_hits_the_plans_limit_says_which_and_when_it_resets(monkeypatch):
+    now = 1_800_000_000.0
+    used_up = {"five_hour": {"used": 1.0, "resets_at": now + 3600, "status": "rejected"},
+               "seven_day": {"used": 0.4, "resets_at": now + 86400 * 3, "status": "allowed"}}
+    said = claude_run.limit_reached(used_up, now)
+    assert said.startswith("Your Claude plan's 5-hour session limit is used up; it resets at ")
+    assert claude_run.limit_reached({"five_hour": {"used": 0.5, "status": "allowed"}}, now) == ""
+    # A window that has reset since is not the reason.
+    assert claude_run.limit_reached({"five_hour": {"used": 0.0, "reset": True}}, now) == ""
+
+    monkeypatch.setattr(claude_run, "limit_reached", lambda: "Your Claude plan's weekly limit is used up.")
+    text = claude_run._explain("API Error: usage limit reached")
+    assert text.startswith("Your Claude plan's weekly limit is used up.")
+    assert "Past runs" in text and "usage limit reached" in text   # what Claude Code said stays
+
+    monkeypatch.setattr(claude_run, "limit_reached", lambda: "")
+    assert "out of credit" in claude_run._explain("Credit balance is too low")
+    assert claude_run._explain("Something else broke") == "Something else broke"

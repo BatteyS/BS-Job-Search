@@ -22,6 +22,7 @@ import json
 import os
 import sys
 import threading
+import time
 import webbrowser
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -39,6 +40,11 @@ import core  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 app = FastAPI(title="BS Job Search", docs_url=None, redoc_url=None)
 runs = core.Runs()
+idle = core.Idle()
+# Set by main(): the restart route needs the port to start again on, and the
+# server to stop.
+PORT = 8765
+SERVER = None
 
 
 class OnlyThisPage:
@@ -51,6 +57,7 @@ class OnlyThisPage:
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
+            idle.touch()
             headers = {k.decode("latin-1"): v.decode("latin-1") for k, v in scope["headers"]}
             why = core.refusal(headers.get("host"), headers.get("origin"))
             if why:
@@ -96,8 +103,24 @@ def style_css():
 
 @app.get("/api/health")
 def health():
-    """Which page this is, and for which folder: a second start reads it."""
-    return {"app": core.APP_NAME, "root": core.ROOT}
+    """Which page this is, and for which folder: a second start reads it, and
+    so does ui/launch.sh. `started` tells the page a restarted server from the
+    one it loaded from, and `restart` says whether it can restart itself."""
+    return {"app": core.APP_NAME, "root": core.ROOT, "started": core.STARTED,
+            "restart": core.launcher() is not None}
+
+
+@app.post("/api/restart")
+def restart():
+    """Start the page again, for code an update changed. Only a page that
+    ui/launch.sh started can: it has no window to do it in by hand."""
+    try:
+        core.restart(PORT, runs)
+    except core.Stop as exc:
+        raise HTTPException(409, str(exc))
+    if SERVER is not None:   # after this answer has gone out
+        threading.Timer(0.5, lambda: setattr(SERVER, "should_exit", True)).start()
+    return {"restarting": True}
 
 
 @app.get("/api/digests")
@@ -159,6 +182,12 @@ def application_status(change: dict):
     if change.get("undo") is False:
         del change["undo"]   # asks for nothing, the same as leaving it out
     return _or_404(core.set_application_status, company, role, **change)
+
+
+@app.get("/api/filed")
+def filed(since: float, until: float | None = None):
+    """What was filed under Applications/ in a span of time: a run's."""
+    return core.filed(since, until)
 
 
 @app.get("/api/applications/{company:path}/{name}")
@@ -412,9 +441,13 @@ def stop_run(run_id: str):
 # ------------------------------------------------------------------- main
 
 def main() -> None:
+    global PORT, SERVER
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--no-open", action="store_true", help="do not open a browser tab")
+    ap.add_argument("--idle-exit", type=float, default=0, metavar="MINUTES",
+                    help="stop once no page has asked for anything this long and no run "
+                         "is going; an open page asks every minute (default: never)")
     args = ap.parse_args()
     url = f"http://127.0.0.1:{args.port}"
     held, root = core.probe_port(args.port)
@@ -433,8 +466,19 @@ def main() -> None:
     core.remember_start()   # so the page can say when an update needs it restarted
     if not args.no_open:
         threading.Timer(0.8, webbrowser.open, [url]).start()
-    print(f"BS Job Search at {url}  (this machine only; Ctrl-C stops it)")
-    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+    print(f"BS Job Search at {url}  (this machine only; Ctrl-C stops it)", flush=True)
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=args.port,
+                                           log_level="warning"))
+    PORT, SERVER = args.port, server
+    if args.idle_exit > 0:
+        def watch():
+            while not server.should_exit:
+                time.sleep(15)
+                if idle.should_exit(args.idle_exit, runs):
+                    print(f"No page open for {args.idle_exit:g} minutes; stopping.", flush=True)
+                    server.should_exit = True
+        threading.Thread(target=watch, name="idle-exit", daemon=True).start()
+    server.run()
 
 
 if __name__ == "__main__":

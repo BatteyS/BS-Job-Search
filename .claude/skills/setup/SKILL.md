@@ -107,6 +107,11 @@ survive extraction and columns or tables can come out jumbled. A PDF needs pypdf
 which uv installs with the rest; doctor says if it is missing. No resume at all is
 fine: build it from the interview.
 
+If reading a file in Downloads, Documents or the Desktop fails with "Operation not
+permitted", macOS is asking the user, in a dialog that may be behind the browser,
+whether Job Search (or Terminal) may use that folder. Say so, ask them to click Allow,
+and read it again.
+
 ### 3b — transcribe
 
 Draft the file in the format of `examples/*/master.md`:

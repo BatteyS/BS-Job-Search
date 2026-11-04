@@ -244,3 +244,14 @@ details.notes summary { cursor: pointer; color: var(--accent); }
   .marks input[type=text] { min-width: 0; flex-basis: 100%; }
   .md table { display: block; overflow-x: auto; }
 }
+
+/* The server has stopped, or is restarting (app.js, heartbeat). */
+.server-banner {
+  padding: 8px 20px; font-size: 13px; background: var(--chip); border-bottom: 1px solid var(--warn);
+}
+.server-banner.bad { color: var(--bad); border-bottom-color: var(--bad); }
+
+/* What a skill run filed under Applications/ (app.js, showFiled). */
+.run .filed:empty { display: none; }
+.run .filed { margin-top: 10px; }
+.run .filed a { overflow-wrap: anywhere; }

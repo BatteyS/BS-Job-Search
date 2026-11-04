@@ -8,7 +8,6 @@ examples/ or are written to a temporary folder.
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 
@@ -20,8 +19,9 @@ EXAMPLES = os.path.join(ROOT, "examples")
 if SCRIPTS not in sys.path:
     sys.path.insert(0, SCRIPTS)
 
-needs_latex = pytest.mark.skipif(shutil.which("pdflatex") is None,
-                                 reason="pdflatex is not installed")
+import latex  # noqa: E402
+
+needs_latex = pytest.mark.skipif(latex.find()[0] is None, reason="pdflatex is not installed")
 
 
 def example(name: str, file: str) -> str:
