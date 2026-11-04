@@ -223,26 +223,111 @@ details.notes summary { cursor: pointer; color: var(--accent); }
 .copy-result button.action.small { margin: 6px 0 0; display: block; }
 .banner.warn { border: 1px solid var(--warn); margin: 8px 0 0; }
 
-/* Phones and narrow windows. The page scrolls as a whole, each tab's sidebar
-   sits above its content, capped so the content starts on the first screen,
-   and the tabs get a row of their own. Wider than this, nothing changes. */
+/* The fold bar above each sidebar (index.html): only phones show it. */
+.side-toggle { display: none; }
+
+/* Phones and narrow windows. The page scrolls as a whole, the tabs become a
+   bar along the bottom where a thumb reaches them, and each tab's sidebar
+   folds into one bar that names what is open: a tap unfolds the list, picking
+   from it folds it again (app.js, setSide). The status line becomes a toast
+   above the tab bar, so saving never shifts the page. Wider than this, nothing
+   changes. */
 @media (max-width: 700px) {
+  :root { --bar: 54px; }
   html, body { height: auto; }
-  header { flex-wrap: wrap; gap: 4px 12px; padding: 8px 12px; }
-  header h1 { flex: 1; }
-  .status { order: 1; flex-basis: 100%; margin-left: 0; }
+  body { font-size: 16px; }
+  /* Room under the page for the tab bar, and for the phone's own home bar. */
+  main { padding-bottom: calc(var(--bar) + env(safe-area-inset-bottom, 0px)); }
+  header { gap: 8px; padding: 8px 16px; padding-top: calc(8px + env(safe-area-inset-top, 0px)); }
+  header h1 { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  nav {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+    display: flex; height: calc(var(--bar) + env(safe-area-inset-bottom, 0px));
+    padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+    background: var(--panel); border-top: 1px solid var(--line);
+    overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  }
+  nav::-webkit-scrollbar { display: none; }
+  nav button {
+    flex: 1 0 auto; min-width: 64px; padding: 0 6px; border-radius: 0; font-size: 12px;
+    line-height: 1.2; display: flex; align-items: center; justify-content: center;
+    border-top: 2px solid transparent; margin-top: -1px; -webkit-tap-highlight-color: transparent;
+  }
+  nav button.active { background: none; color: var(--accent); font-weight: 600; border-top-color: var(--accent); }
+  nav .count { margin-left: 4px; }
+  /* While a field has the keyboard up, the bar hides, so the keyboard does
+     not push it over what is being typed (app.js, body.typing). */
+  body.typing nav { display: none; }
+  .status {
+    position: fixed; left: 50%; top: calc(10px + env(safe-area-inset-top, 0px));
+    transform: translateX(-50%); z-index: 21; max-width: calc(100% - 32px);
+    margin: 0; padding: 8px 14px; border-radius: 18px; font-size: 14px; cursor: pointer;
+    background: var(--fg); color: var(--bg); box-shadow: 0 2px 10px rgba(0, 0, 0, .25);
+  }
+  .status.err { background: var(--bad); color: #fff; }
   .status:empty { display: none; }
-  nav { order: 2; flex-basis: 100%; display: flex; overflow-x: auto; margin: 0 -6px; }
-  nav button { flex: none; padding: 6px 8px; }
+  .usage { font-size: 12px; padding: 4px 10px; }
+
   .tab { height: auto; }
   .tab.active { flex-direction: column; }
-  .side { width: auto; max-height: 45vh; max-height: 45svh; border-right: none;
-    border-bottom: 1px solid var(--line); }
-  .content { overflow: visible; max-width: none; padding: 16px 14px; }
-  .run.claude .head { top: 0; }
-  .demo-banner { padding: 8px 12px; }
-  .marks input[type=text] { min-width: 0; flex-basis: 100%; }
-  .md table { display: block; overflow-x: auto; }
+  .side-toggle {
+    display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px;
+    padding: 8px 16px; border: none; border-bottom: 1px solid var(--line);
+    background: var(--panel); color: var(--fg); font: inherit; font-weight: 600;
+    text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  .side-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .side-label small { font-weight: normal; color: var(--muted); font-size: 13px; }
+  .side-arrow { flex: none; width: 9px; height: 9px; margin-right: 3px;
+    border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+    transform: translateY(-3px) rotate(45deg); transition: transform .15s; }
+  .side-toggle[aria-expanded="true"] .side-arrow { transform: translateY(2px) rotate(225deg); }
+  .side { display: none; width: auto; border-right: none; border-bottom: 1px solid var(--line); padding: 8px 10px 12px; }
+  .tab.side-open .side { display: block; }
+  .side .item { padding: 10px 12px; }
+  .content { overflow: visible; max-width: none; padding: 16px; }
+  .demo-banner, .server-banner { padding: 8px 16px; }
+
+  /* A digest entry's marks: the three boxes on one line, the reason under them. */
+  .marks { gap: 6px 16px; }
+  .marks input[type=text] { order: 10; min-width: 0; flex-basis: 100%; }
+  .md table { display: block; overflow-x: auto; max-width: 100%; }
+  .md a, .bubble, .files a, .run .filed { overflow-wrap: anywhere; }
+  .files li { flex-wrap: wrap; }
+
+  /* A run: its head wraps, and stays at the top while it scrolls past. */
+  .run .head { flex-wrap: wrap; gap: 4px 10px; }
+  .run .head .muted { white-space: nowrap; }
+  .run.claude .head { top: 0; margin: 0 -16px; padding: 8px 16px; }
+  .run.claude .head b { flex-basis: 100%; }
+  pre.out { max-height: 60svh; }
+  /* The reply box stays in reach at the bottom while its run waits for a reply. */
+  .replybox { position: sticky; bottom: calc(var(--bar) + env(safe-area-inset-bottom, 0px));
+    margin: 10px -16px 0; padding: 8px 16px 10px; background: var(--bg); border-top: 1px solid var(--line); }
+  .app-row .set > * { flex: 1 1 auto; }
+  .app-row .set button.action.small { flex: 0 0 auto; }
+  .toolbar > h2 { flex: 1; }
+  iframe.pdf { height: 70svh; }
+}
+
+/* Touch screens. iOS zooms the page into any field whose text is under 16px
+   when it gets focus, and leaves it zoomed; at 16px it leaves the page as it
+   is. !important, since several fields set a smaller size of their own. And
+   everything tapped is at least 40px tall, which a thumb hits. */
+@media (pointer: coarse) {
+  input, textarea, select { font-size: 16px !important; }
+  button.action, .usage, select, .pick select, .skill-form select,
+  input:not([type=checkbox]):not([type=radio]), .marks input[type=text], .app-row select, .app-row input,
+  .key-form input, .card input[type=text] { min-height: 40px; }
+  button.action.small, .cmd button.action.small { min-height: 36px; padding: 4px 12px; }
+  .pick select { padding: 4px 6px; }
+  input[type=checkbox], input[type=radio] { width: 20px; height: 20px; margin: 0; accent-color: var(--accent); flex: none; }
+  .marks label, .options label { min-height: 40px; }
+  .options label { align-items: center; }
+  .side .item { min-height: 44px; }
+  details.tool summary { padding: 6px 0; }
+  .files li { padding: 8px 0; }
+  a { -webkit-tap-highlight-color: rgba(36, 87, 168, .15); }
 }
 
 /* The server has stopped, or is restarting (app.js, heartbeat). */
@@ -255,10 +340,3 @@ details.notes summary { cursor: pointer; color: var(--accent); }
 .run .filed:empty { display: none; }
 .run .filed { margin-top: 10px; }
 .run .filed a { overflow-wrap: anywhere; }
-
-/* Touch screens: iOS zooms the page into any field whose text is under 16px
-   when it gets focus, and leaves it zoomed. At 16px it leaves the page as it
-   is. !important, since several fields set a smaller size of their own. */
-@media (pointer: coarse) {
-  input, textarea, select { font-size: 16px !important; }
-}
