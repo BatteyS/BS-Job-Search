@@ -255,3 +255,10 @@ details.notes summary { cursor: pointer; color: var(--accent); }
 .run .filed:empty { display: none; }
 .run .filed { margin-top: 10px; }
 .run .filed a { overflow-wrap: anywhere; }
+
+/* Touch screens: iOS zooms the page into any field whose text is under 16px
+   when it gets focus, and leaves it zoomed. At 16px it leaves the page as it
+   is. !important, since several fields set a smaller size of their own. */
+@media (pointer: coarse) {
+  input, textarea, select { font-size: 16px !important; }
+}
