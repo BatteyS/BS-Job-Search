@@ -1,6 +1,8 @@
 // The page. No framework and no build step: five tabs over /api, each a
-// sidebar and a content pane, apart from Setup's single column. Markdown is rendered with the small renderer at
-// the bottom, which covers what the digests and profile files use.
+// sidebar and a content pane, apart from Setup's single column; on a phone the
+// tabs sit along the bottom and each sidebar folds into a bar (setSide).
+// Markdown is rendered with the small renderer at the bottom, which covers
+// what the digests and profile files use.
 //
 // The example demos (ui/build_demo.py) run this same file with no server:
 // window.DEMO holds what each route would answer, and demoApi() reads it.
@@ -12,11 +14,15 @@ const DEMO = window.DEMO || null;
 // Tailscale (ui/phone.py): what the page says to do depends on it.
 const ON_MAC = ["127.0.0.1", "localhost", "[::1]", "::1"].includes(location.hostname);
 
+// An error stays until the next message. On a phone, where the line is a
+// toast over the page (style.css), it goes after eight seconds, or on a tap.
 function say(text, isError = false) {
   statusEl.textContent = text;
   statusEl.className = "status" + (isError ? " err" : "");
-  if (!isError) setTimeout(() => { if (statusEl.textContent === text) statusEl.textContent = ""; }, 4000);
+  const ttl = isError ? (NARROW.matches ? 8000 : 0) : 4000;
+  if (ttl) setTimeout(() => { if (statusEl.textContent === text) statusEl.textContent = ""; }, ttl);
 }
+statusEl.onclick = () => { statusEl.textContent = ""; };
 
 async function api(path, opts = {}) {
   if (DEMO) return demoApi(path, opts);
@@ -57,7 +63,44 @@ function showTab(name) {
   if (name === "setup") loadSetup();
   else if (!loaded[name]) { loaded[name] = true; ({ digests: loadDigests, applications: loadApplications, runs: loadRuns, profile: loadProfile })[name](); }
   location.hash = name;
+  if (NARROW.matches) window.scrollTo(0, 0);
 }
+
+// ------------------------------------------------------------- sidebars
+// On a phone (style.css, the narrow breakpoint) each tab's sidebar folds into
+// one bar that names what is open: the digest's date, the company, the file.
+// A tap unfolds the list; picking from it folds it again and brings the
+// content back to the top of the screen. Wider, the bar is not shown and the
+// sidebar is always there, so the fold state changes nothing.
+
+const NARROW = window.matchMedia ? matchMedia("(max-width: 700px)") : { matches: false };
+
+function setSide(tab, open) {
+  const sec = $("#tab-" + tab);
+  sec.classList.toggle("side-open", open);
+  sec.querySelector(".side-toggle").setAttribute("aria-expanded", String(open));
+}
+
+// What was picked: name it on the bar, and on a phone fold the list.
+function pickSide(tab, ...label) {
+  const sec = $("#tab-" + tab);
+  if (label.length) sec.querySelector(".side-label").replaceChildren(...label);
+  if (!NARROW.matches) return;
+  setSide(tab, false);
+  const top = sec.getBoundingClientRect().top;
+  if (top < 0) window.scrollBy(0, top);
+}
+
+for (const t of document.querySelectorAll(".side-toggle")) {
+  const tab = t.closest(".tab").id.slice(4);
+  setSide(tab, true);
+  t.onclick = () => setSide(tab, t.getAttribute("aria-expanded") !== "true");
+}
+
+// While a field has the keyboard up, the tab bar hides (style.css).
+const TYPED = "input:not([type=checkbox]):not([type=radio]), textarea";
+document.addEventListener("focusin", ev => { if (ev.target.matches && ev.target.matches(TYPED)) document.body.classList.add("typing"); });
+document.addEventListener("focusout", () => document.body.classList.remove("typing"));
 
 // --------------------------------------------------------------- digests
 
@@ -70,20 +113,26 @@ async function loadDigests() {
   try { digests = await api("/api/digests"); } catch (e) { say(e.message, true); return; }
   if (!digests.length) { list.append(el("p", { class: "muted" }, "No digests yet. A scan writes one: Job scan, in the Runs tab.")); return; }
   for (const d of digests) {
-    const counts = `${d.entries} roles · ${d.apply} apply · ${d.skip} skip` + (d.unmarked ? ` · ${d.unmarked} unmarked` : "") + (d.conflicts ? ` · ${d.conflicts} to settle` : "");
-    list.append(el("button", { class: "item", "data-date": d.date, onclick: () => openDigest(d.date) }, d.date, el("small", {}, counts)));
+    list.append(el("button", { class: "item", "data-date": d.date, onclick: () => openDigest(d.date) }, d.date, el("small", {}, digestCounts(d))));
   }
   if (!currentDigest) openDigest(digests[0].date);
 }
 
+function digestCounts(d) {
+  return `${d.entries} roles · ${d.apply} apply · ${d.skip} skip` + (d.unmarked ? ` · ${d.unmarked} unmarked` : "") + (d.conflicts ? ` · ${d.conflicts} to settle` : "");
+}
+
 function refreshDigestCounts(d) {
   const b = $(`#digest-list [data-date="${d.date}"] small`);
-  if (b) b.textContent = `${d.entries} roles · ${d.apply} apply · ${d.skip} skip` + (d.unmarked ? ` · ${d.unmarked} unmarked` : "") + (d.conflicts ? ` · ${d.conflicts} to settle` : "");
+  if (b) b.textContent = digestCounts(d);
+  if (currentDigest === d.date) $("#tab-digests .side-label").replaceChildren(d.date, " ", el("small", {}, digestCounts(d)));
 }
 
 async function openDigest(date) {
   currentDigest = date;
   for (const b of document.querySelectorAll("#digest-list .item")) b.classList.toggle("active", b.dataset.date === date);
+  const counts = $(`#digest-list [data-date="${date}"] small`);
+  pickSide("digests", date, " ", el("small", {}, counts ? counts.textContent : ""));
   const view = $("#digest-view");
   view.replaceChildren(el("p", { class: "muted" }, "Loading…"));
   let d;
@@ -221,6 +270,7 @@ function appProblems() {
 function openTracker() {
   appOpen = "all";
   renderAppList();
+  pickSide("applications", "All applications", " ", el("small", {}, appCounts(appRows())));
   // The latest change first, then what has no status yet. A change does not
   // re-sort the table, so a row stays where it was while it is being edited.
   const rows = appRows().slice().sort((a, b) => (b.since || "").localeCompare(a.since || "")
@@ -239,6 +289,7 @@ function openApplication(company) {
   if (!f) { openTracker(); return; }
   appOpen = company;
   renderAppList();
+  pickSide("applications", f.company, " ", el("small", {}, folderLine(f)));
   const viewer = el("div");
   const files = el("ul", { class: "files" });
   for (const file of f.files) {
@@ -271,6 +322,8 @@ function statusRow(r, withCompany) {
       renderAppList();
       const counts = $("#app-counts");
       if (counts) counts.textContent = appCounts(appRows());
+      const bar = $("#tab-applications .side-label small");
+      if (bar) bar.textContent = appOpen === "all" ? appCounts(appRows()) : folderLine(apps.folders.find(f => f.company === appOpen));
       say(DEMO ? "Changed on this page only: the demo saves nothing." : `Saved to ${apps.file}`);
     } catch (e) {
       say(e.message, true);
@@ -370,6 +423,8 @@ async function loadRuns() {
 
   const old = await api("/api/runs");
   for (const r of old) attachRun(r, false);
+  // Opened with a run still going, as a phone checking on one: show the run.
+  if (old.some(r => ACTIVE.includes(r.status))) pickSide("runs");
   refreshSkillButtons();
 }
 
@@ -433,7 +488,7 @@ async function loadPastRuns(side) {
       const box = el("textarea", { placeholder: "What next? This continues the same conversation.", rows: 3 });
       const go = el("button", { class: "action primary", onclick: async () => {
         if (!box.value.trim()) return;
-        try { const run = await api("/api/claude/resume", { method: "POST", body: JSON.stringify({ session_id: p.session_id, text: box.value.trim(), ...activePick() }) }); form.remove(); attachRun(run, true); }
+        try { const run = await api("/api/claude/resume", { method: "POST", body: JSON.stringify({ session_id: p.session_id, text: box.value.trim(), ...activePick() }) }); form.remove(); attachRun(run, true); pickSide("runs"); }
         catch (e) { say(e.message, true); }
       } }, "Resume");
       const form = el("div", { class: "skill-form" }, box, el("div", { class: "toolbar" }, go, el("button", { class: "action", onclick: () => form.remove() }, "Cancel")));
@@ -451,6 +506,7 @@ async function startSkill(name, params) {
   loaded.runs = true;
   attachRun(run, true);
   showTab("runs");
+  pickSide("runs");
 }
 
 async function startRun(name, params, switchTab = false) {
@@ -461,6 +517,7 @@ async function startRun(name, params, switchTab = false) {
   loaded.runs = true;
   attachRun(run, true);
   if (switchTab) showTab("runs");
+  pickSide("runs");
 }
 
 function attachRun(run, live) {
@@ -605,7 +662,7 @@ async function attachClaudeRun(run, live) {
         if (d) { d.querySelector("pre").textContent = ev.excerpt || (ev.ok ? "(no output)" : "(failed)"); d.classList.toggle("failed", !ev.ok); }
         break;
       }
-      case "card": cardArea.replaceChildren(cardView(run.id, ev)); break;
+      case "card": cardArea.replaceChildren(cardView(run.id, ev)); if (NARROW.matches && state.replayed && !document.hidden) cardArea.scrollIntoView({ block: "nearest", behavior: "smooth" }); break;
       case "card_answered": cardArea.replaceChildren(); transcript.append(el("div", { class: "note" }, `${ev.decision === "deny" ? "Denied" : "Allowed"}`)); break;
       case "turn_end": setupState(); transcript.append(el("div", { class: "note" }, `turn ended · ${ev.num_turns ?? "?"} steps` + (ev.tokens ? ` · ${fmtTokens(ev.tokens)} tokens` : "") + (ev.cost ? ` · ≈$${ev.cost.toFixed(2)} so far at API prices` : ""))); break;
       case "error": transcript.append(el("div", { class: "bubble error" }, ev.message)); break;
@@ -1197,6 +1254,7 @@ async function loadProfile() {
 
 async function openProfileFile(path, btn) {
   for (const b of document.querySelectorAll("#profile-list .item")) b.classList.toggle("active", b === btn);
+  pickSide("profile", path);
   const view = $("#profile-view");
   view.replaceChildren(el("p", { class: "muted" }, "Loading…"));
   try {

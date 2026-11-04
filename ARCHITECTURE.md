@@ -243,7 +243,11 @@ request only once `data/ui-remote.json` records phone access, only for that acco
 only at the Mac's tailnet name, whose own pages are the one other origin it allows. The
 page carries a web app manifest and an icon drawn in code (`ui/icon.py`), so a phone adds
 it to its home screen as an app; Job Search on the Desktop has the same icon, as a Mac
-tile.
+tile. On a phone the page lays itself out as one (`ui/style.css`, the narrow breakpoint):
+the tabs sit in a bar along the bottom, each tab's sidebar folds into a bar that names
+what is open and unfolds to the list on a tap (`setSide` in `app.js`), the status line is
+a toast, a run's reply box stays at the bottom while the run waits, and everything tapped
+is at least 40px tall. Wider than a phone, nothing changes.
 
 `ui/build_demo.py` builds the same page as static files for each example profile, from
 its `examples/<name>/demo/` folder: it lays the example out like a copy of this repo,

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>BS Job Search</title>
 <link rel="stylesheet" href="style.css">
 <link rel="manifest" href="manifest.webmanifest">
@@ -11,12 +11,13 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Job Search">
-<meta name="theme-color" content="#2457a8">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1f1f1d" media="(prefers-color-scheme: dark)">
 </head>
 <body>
 <header>
   <h1>BS Job Search</h1>
-  <nav>
+  <nav aria-label="Tabs">
     <button data-tab="setup">Setup</button>
     <button data-tab="digests">Digests</button>
     <button data-tab="applications">Applications</button>
@@ -34,21 +35,25 @@
   </section>
 
   <section id="tab-digests" class="tab">
+    <button class="side-toggle" aria-controls="digest-list" aria-expanded="true"><span class="side-label">Digests</span><span class="side-arrow" aria-hidden="true"></span></button>
     <aside id="digest-list" class="side"></aside>
     <div id="digest-view" class="content"><p class="muted">Choose a digest.</p></div>
   </section>
 
   <section id="tab-applications" class="tab">
+    <button class="side-toggle" aria-controls="app-list" aria-expanded="true"><span class="side-label">Applications</span><span class="side-arrow" aria-hidden="true"></span></button>
     <aside id="app-list" class="side"></aside>
     <div id="app-view" class="content"><p class="muted">Choose a company.</p></div>
   </section>
 
   <section id="tab-runs" class="tab">
+    <button class="side-toggle" aria-controls="run-commands" aria-expanded="true"><span class="side-label">Skills and scripts</span><span class="side-arrow" aria-hidden="true"></span></button>
     <aside id="run-commands" class="side"></aside>
-    <div id="run-view" class="content"><p class="muted">Pick a skill or a script on the left. What it says and does shows here, and anything it would ask you in a terminal comes up as a card to answer.</p></div>
+    <div id="run-view" class="content"><p class="muted">Pick a skill or a script from the list. What it says and does shows here, and anything it would ask you in a terminal comes up as a card to answer.</p></div>
   </section>
 
   <section id="tab-profile" class="tab">
+    <button class="side-toggle" aria-controls="profile-list" aria-expanded="true"><span class="side-label">Files</span><span class="side-arrow" aria-hidden="true"></span></button>
     <aside id="profile-list" class="side"></aside>
     <div id="profile-view" class="content"><p class="muted">Choose a file. These are read-only here. Set up and the cover-letter interview add to them, with your approval, or you can edit them in your editor.</p></div>
   </section>
