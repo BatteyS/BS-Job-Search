@@ -402,11 +402,16 @@ async function pickApplication(s, btn) {
   pick.focus();
 }
 
+// One skill works at a time. One that has finished its turn and waits for a
+// reply (idle) holds nothing: starting another skill ends it, and Past runs
+// picks it up again.
 function refreshSkillButtons() {
-  for (const b of document.querySelectorAll("#run-commands .skill")) b.disabled = !!activeClaude;
+  const working = !!activeClaude && WORKING.includes(activeClaude.status);
+  for (const b of document.querySelectorAll("#run-commands .skill")) b.disabled = working;
   const banner = $("#run-active");
   if (activeClaude) {
-    const text = `${activeClaude.name} is ${activeClaude.status}. One skill runs at a time.`;
+    const text = working ? `${activeClaude.name} is ${activeClaude.status}. One skill runs at a time.`
+      : `${activeClaude.name} is waiting for your reply. Starting another skill ends it; Past runs can pick it up again.`;
     if (banner) banner.textContent = text; else $("#run-commands").prepend(el("p", { id: "run-active", class: "banner" }, text));
   } else if (banner) banner.remove();
 }
@@ -476,6 +481,7 @@ function attachRun(run, live) {
 // ------------------------------------------------------- a skill's run
 
 const ACTIVE = ["starting", "running", "waiting", "idle"];
+const WORKING = ["starting", "running", "waiting"];   // idle: the turn is over
 
 async function attachClaudeRun(run, live) {
   const view = $("#run-view");
@@ -489,13 +495,28 @@ async function attachClaudeRun(run, live) {
   const replyBox = el("div", { class: "replybox", hidden: "" }, reply, send);
   const when = new Date(run.started * 1000).toLocaleTimeString();
   const routed = run.route && run.route.label ? el("span", { class: "chip", title: run.route.why || "" }, run.route.label) : null;
+  const filedBox = el("div", { class: "filed" });
   const panel = el("div", { class: "run claude", "data-run": run.id },
     el("div", { class: "head" }, el("b", {}, run.name), routed, el("span", { class: "muted" }, when), st, stop),
-    transcript, cardArea, replyBox);
+    transcript, filedBox, cardArea, replyBox);
   view.prepend(panel);
 
-  const state = { status: run.status, tools: {}, seen: 0 };
+  // What this run filed under Applications/: a resume, a letter, a prep sheet,
+  // each opened here. From its start to its last change, or to now while it is
+  // still going.
+  const showFiled = async until => {
+    let files = [];
+    try { files = await api(`/api/filed?since=${run.started - 1}` + (until ? `&until=${until + 1}` : "")); } catch (e) { return; }
+    const viewer = el("div");
+    filedBox.replaceChildren(...(files.length ? [el("p", { class: "small" }, el("b", {}, "Filed: "),
+      ...files.flatMap((f, i) => [i ? " · " : "", f.viewable
+        ? el("a", { href: "#", onclick: ev => { ev.preventDefault(); showFile(viewer, fileUrl(f.company, f.name), f.name); } }, `${f.company}/${f.name}`)
+        : `${f.company}/${f.name}`])), viewer] : []));
+  };
+
+  const state = { status: run.status, tools: {}, seen: 0, replayed: false };
   const setStatus = s => {
+    const was = state.status;
     state.status = s; st.textContent = s; st.className = "st " + s;
     replyBox.hidden = s !== "idle";
     stop.textContent = s === "idle" ? "End run" : "Stop";
@@ -504,7 +525,14 @@ async function attachClaudeRun(run, live) {
     if (mine) activeClaude = { id: run.id, name: run.name, status: s };
     else if (activeClaude && activeClaude.id === run.id) activeClaude = null;
     refreshSkillButtons();
-    if (!mine) { if (loaded.digests) loadDigests(); if (loaded.applications) loadApplications(); setupState(); }
+    // A turn has ended, or the run has: what it wrote shows in the other tabs,
+    // and what it filed, here.
+    if (!mine || (s === "idle" && WORKING.includes(was))) {
+      if (loaded.digests) loadDigests();
+      if (loaded.applications) loadApplications();
+      setupState();
+      if (state.replayed) showFiled();
+    }
   };
   setStatus(run.status);
 
@@ -547,6 +575,8 @@ async function attachClaudeRun(run, live) {
     const full = await api("/api/runs/" + run.id);
     for (const ev of full.output) render(ev);
     setStatus(full.status);
+    state.replayed = true;
+    showFiled(WORKING.includes(full.status) ? null : full.updated);
     if (!ACTIVE.includes(full.status)) return;
   } catch (e) { say(e.message, true); return; }
 
@@ -770,9 +800,14 @@ async function loadSetup() {
   catch (e) { parts.scan.replaceChildren(el("p", { class: "muted" }, e.message)); parts.resume.replaceChildren(); return; }
   const rows = group => checks.checks.filter(r => r.group === group);
   parts.scan.replaceChildren(...checks.keys.map(keyForm), el("ul", { class: "checks" }, ...rows("sources").map(checkRow)));
-  const latex = rows("latex");
+  const noLatex = rows("latex").some(r => r.status === "MISSING");
+  // Where the button installs it, the button says how, so the rows need not.
+  const latex = rows("latex").map(r => noLatex && checks.latex_install ? { ...r, fix: "" } : r);
   parts.resume.replaceChildren(el("ul", { class: "checks" }, ...latex.map(checkRow)),
-    latex.some(r => r.status === "MISSING") ? el("p", { class: "muted small" }, "Run the install from a new terminal window. Once it is done, close the page's own window and start the page again: a page started before the install cannot find LaTeX.") : "");
+    noLatex && checks.latex_install ? el("div", { class: "toolbar" },
+      el("button", { class: "action primary", onclick: () => startRun("latex", {}, true) }, "Install LaTeX"),
+      el("span", { class: "muted small" }, "TinyTeX, in your home folder: about 64 MB, a few minutes, and no password. It runs in the Runs tab; once it is done, come back and press Check again. Nothing needs restarting."))
+    : noLatex ? el("p", { class: "muted small" }, "Once it is installed, press Check again. Nothing needs restarting.") : "");
   // A file that is there but does not load, or Python missing a package: show it with the
   // files. A file not written yet is already in the list above.
   await stated;
@@ -790,11 +825,11 @@ function claudeView(s) {
   if (DEMO) return [el("p", { class: "muted small" }, "On your own copy, this says whether Claude Code is ready, and the command to run if not.")];
   if (s.available) return [el("p", {}, el("span", { class: "chip ok" }, "ready"), ` ${s.version || "Claude Code"} · ${s.how}` + (s.logged_in ? " · logged in" : ""))];
   if (s.install) return [
-    el("p", {}, el("span", { class: "chip bad" }, "not installed"), " Install it from a new terminal window, leaving the page's own window open, then press Check again. It needs a paid Claude plan or an Anthropic Console account."),
+    el("p", {}, el("span", { class: "chip bad" }, "not installed"), " Install it in Terminal (in Applications, Utilities), then press Check again. If the page runs in a Terminal window of its own, use a new one. It needs a paid Claude plan or an Anthropic Console account."),
     command(s.install),
     el("p", { class: "muted small", html: 'Other ways to install it are in <a href="https://code.claude.com/docs/en/setup" target="_blank" rel="noopener">Claude Code\'s setup guide</a>.' })];
   if (s.login) return [
-    el("p", {}, el("span", { class: "chip bad" }, "not logged in"), " Run this once in a new terminal window, leaving the page's own window open. It opens your browser to sign in; then press Check again."),
+    el("p", {}, el("span", { class: "chip bad" }, "not logged in"), " Run this once in Terminal (in Applications, Utilities). It opens your browser to sign in; then press Check again. If the page runs in a Terminal window of its own, use a new one."),
     command(s.login),
     el("p", { class: "muted small" }, "The Claude desktop app's own login does not carry over to it.")];
   return [el("p", {}, el("span", { class: "chip bad" }, "not available"), " " + (s.reason || ""))];
@@ -885,7 +920,8 @@ function keyForm(k) {
 
 const copyNote = $("#copy-note");
 const COPY_STALE = 3600;   // seconds before the page asks the template again
-const RESTART_HOW = "This page is still running the code from before the update. To finish, start it again: close the window it runs in, then open start.command (start.cmd on Windows), or run uv run ui/server.py in this folder.";
+const RESTART_HOW = "This page is still running the code from before the update. To finish, start it again: stop it with Ctrl+C in the window it runs in (or close that window), then start it the same way, with start.command (start.cmd on Windows) or uv run ui/server.py in this folder.";
+const RESTART_APP = "This page is still running the code from before the update. Restart it to finish: a few seconds, or a minute or two when the update added packages.";
 let copyState = null, copyLoading = null;
 
 // The page asks on load and from the Setup tab at once: they share one check.
@@ -916,7 +952,7 @@ function showCopy(s) {
   copyNote.textContent = text;
   copyNote.hidden = !text;
   copyNote.className = "usage " + (s.restart ? "warn" : "news");
-  copyNote.title = s.restart ? RESTART_HOW : n ? "The template has updates: click for what changed, and the Update button." : "Another machine backed up changes this one does not have yet: click to bring them in.";
+  copyNote.title = s.restart ? restartHow() : n ? "The template has updates: click for what changed, and the Update button." : "Another machine backed up changes this one does not have yet: click to bring them in.";
   const box = $("#copy");
   if (box) box.replaceChildren(...copyView(s));
 }
@@ -937,7 +973,8 @@ function copyView(s) {
   const ago = s.checked ? Math.round((Date.now() / 1000 - s.checked) / 60) : null;
   const parts = [el("div", { class: "copy-head" }, el("b", {}, "Your copy"), check,
     el("div", { class: "muted small" }, s.about + (ago === null ? "" : ago < 1 ? " Checked just now." : ` Checked ${ago} min ago.`)))];
-  if (s.restart) parts.push(el("p", { class: "banner warn" }, el("b", {}, "Restart the page. "), RESTART_HOW));
+  if (s.restart) parts.push(el("p", { class: "banner warn" }, el("b", {}, "Restart the page. "), restartHow(),
+    HEALTH && HEALTH.restart ? el("span", {}, " ", el("button", { class: "action small primary", onclick: ev => restartPage(ev.target) }, "Restart now")) : ""));
   if (s.error) parts.push(el("p", { class: "fix" }, s.error));
   if (s.layout === "unlinked") {
     const link = el("button", { class: "action", onclick: () => copyAct(link, "/api/copy/link", "POST") }, "Link to the template");
@@ -1113,6 +1150,58 @@ function markdown(text) {
   return out.join("\n");
 }
 
+// ------------------------------------------------------------ the server
+// The page asks /api/health once a minute, which keeps a server started with
+// --idle-exit (Job Search on the Desktop) up while any tab is open. When the
+// server has gone, a banner says how to start it again, and the page reloads
+// itself once it answers.
+
+let HEALTH = null, serverGone = false, restarting = false;
+
+function serverBanner(text, bad = false) {
+  let b = $("#server-banner");
+  if (!text) { if (b) b.remove(); return; }
+  if (!b) { b = el("div", { id: "server-banner", class: "server-banner" }); document.body.prepend(b); }
+  b.className = "server-banner" + (bad ? " bad" : "");
+  b.textContent = text;
+}
+
+function restartHow() { return HEALTH && HEALTH.restart ? RESTART_APP : RESTART_HOW; }
+
+async function heartbeat() {
+  let h = null;
+  try { const r = await fetch("/api/health"); if (r.ok) h = await r.json(); } catch (e) { /* not answering */ }
+  if (h) {
+    if (serverGone && !restarting) { location.reload(); return; }
+    const first = !HEALTH;
+    HEALTH = h;
+    if (first && copyState && copyState.restart) showCopy(copyState);   // now it can offer Restart
+    return;
+  }
+  if (restarting || serverGone) return;
+  serverGone = true;
+  serverBanner(HEALTH && HEALTH.restart
+    ? "The page has stopped: it stops by itself ten minutes after its last tab closes, and a browser can pause a tab it has hidden for long. Open Job Search on your Desktop to start it again, and this tab picks up by itself."
+    : "The page has stopped. Start it again (start.command, or Job Search on your Desktop), and this tab picks up by itself.", true);
+  setInterval(heartbeat, 5000);
+}
+
+async function restartPage(btn) {
+  if (btn) btn.disabled = true;
+  const before = HEALTH && HEALTH.started;
+  try { await api("/api/restart", { method: "POST" }); }
+  catch (e) { say(e.message, true); if (btn) btn.disabled = false; return; }
+  restarting = true;
+  serverBanner("Restarting the page. Installing what an update added can take a minute or two; this tab reloads by itself.");
+  const until = Date.now() + 10 * 60 * 1000;
+  const poll = async () => {
+    try { const h = await (await fetch("/api/health")).json(); if (h.started !== before) { location.reload(); return; } } catch (e) { /* not back yet */ }
+    if (Date.now() > until) { serverBanner("The page has not come back after ten minutes. Open Job Search on your Desktop; what it printed is in ~/Library/Logs/BS Job Search.log.", true); return; }
+    setTimeout(poll, 1500);
+  };
+  setTimeout(poll, 1500);
+}
+
 // ----------------------------------------------------------------- start
 
 // A run started from another tab, or resumed from one, shows up here too,
@@ -1197,6 +1286,9 @@ const TABS = ["setup", "digests", "applications", "runs", "profile"];
 loadUsage();
 loadCopy();
 setInterval(() => { if (!document.hidden) loadCopy(); }, 15 * 60 * 1000);
+// While a tab has the page open, it says so once a minute, hidden or not, so
+// a server started with --idle-exit stays up until every tab is closed.
+if (!DEMO) { heartbeat(); setInterval(heartbeat, 60 * 1000); }
 setupState().then(s => {
   const asked = location.hash.slice(1);
   showTab(TABS.includes(asked) ? asked : s && !s.ready ? "setup" : "digests");
