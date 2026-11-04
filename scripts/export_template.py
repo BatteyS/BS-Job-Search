@@ -56,7 +56,9 @@ ALLOWED_LINES = {"LICENSE": re.compile(r"^Copyright \(c\) ")}
 NOT_SCANNED = {"uv.lock"}
 
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
-SAFE_EMAIL = re.compile(r"@example\.(com|org|net)$|^git@github\.com$", re.I)
+# Not addresses: the examples' own, GitHub's for git, and the @2x.png that names
+# a Retina image (ui/icon.py's iconset).
+SAFE_EMAIL = re.compile(r"@example\.(com|org|net)$|^git@github\.com$|@\dx\.png$", re.I)
 PHONE = re.compile(r"(?<![\d.])\(?(\d{3})\)?[ .-](\d{3})[ .-]\d{4}(?![\d.])")
 
 

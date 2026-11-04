@@ -9,16 +9,20 @@
 #
 # In a copy you already have, run it from that folder instead: sh install.sh
 #
-# It installs only what is missing, and asks for no password. In order:
+# It installs only what is missing, all of it into your own home folder, and
+# asks for no password itself. Apple's Command Line Tools come through a window
+# of Apple's, which on some Macs asks for an administrator. In order:
 #
 #   1. Apple's Command Line Tools, which bring git. macOS asks you to click
 #      Install, and the steps that do not need git go on while they download.
 #   2. uv, which runs the Python this workflow is pinned to.
-#   3. Claude Code, and its sign-in, in your browser. It needs a paid Claude
-#      plan (Pro or Max) or an Anthropic Console account.
+#   3. Claude Code, and its sign-in, in your browser. It needs any paid Claude
+#      plan, including one from your employer, or an Anthropic Console account.
 #   4. Your copy of the template, in ~/job-search, and its Python packages.
 #   5. LaTeX, which typesets resumes: TinyTeX, in your own Library folder.
 #   6. Job Search on your Desktop, which starts the page and opens it.
+#   7. If you want it, Job Search on your phone too: an icon on its home screen
+#      that opens the page from anywhere (ui/phone.py, with Tailscale).
 #
 # Run it again whenever you like: what is done is skipped, and Job Search on
 # the Desktop is made again, which is how to bring it back or point it at a
@@ -30,6 +34,7 @@
 #                  inside a copy, that copy is used.
 #   --no-latex     leave LaTeX for later; the page's Setup tab installs it
 #   --no-open      do not open the page at the end
+#   --phone        set up Job Search on your phone, without asking first
 #
 # Only macOS for now. On Windows or Linux, follow Get started in README.md.
 
@@ -52,6 +57,8 @@ step() { printf '\n%s%s%s\n' "$BOLD" "$*" "$PLAIN"; }
 ok()   { printf '  %sok%s    %s\n' "$BOLD" "$PLAIN" "$*"; }
 note() { printf '        %s\n' "$*"; }
 quiet() { "$@" >>"$LOG" 2>&1; }
+# $1 in single quotes, for a command to paste: each ' written '\''.
+shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 
 die() {
   printf '\n%sStopped.%s %s\n' "$BOLD" "$PLAIN" "$*" >&2
@@ -111,9 +118,12 @@ preflight() {
   # belongs to root, and both installers then fail.
   for d in "$HOME/.local" "$HOME/.local/bin" "$HOME/.local/share"; do
     if [ -e "$d" ] && [ ! -w "$d" ]; then
-      die "$d belongs to another user (usually root, from an earlier sudo), so nothing can install into it. Give it back to yourself with this, which asks for your Mac password, then run this again:
+      me=$(id -un)
+      die "$d belongs to another user (usually root, from an earlier sudo), so nothing can install into it. Give it back to yourself with this command, then run this again:
 
-    sudo chown -R \"\$USER\" ~/.local"
+    sudo chown -R $me $(shq "$HOME/.local")
+
+It needs an administrator of this Mac. If that is you, it asks for your Mac password. If not, an administrator can run it from their own account, or in this Terminal window after su followed by their account name (which asks for their password)."
     fi
   done
 
@@ -148,6 +158,26 @@ clt_window_open() {
   pgrep -f "Install Command Line Developer Tools" >/dev/null 2>&1
 }
 
+# Ask Apple for the Command Line Tools, which opens its install window, or
+# stop with why it did not. One reason is tools that are in, but where macOS
+# does not look for them, which only an administrator can reset.
+open_clt_window() {
+  said=$(xcode-select --install 2>&1)
+  rc=$?
+  printf '%s\n' "$said" >>"$LOG"
+  [ "$rc" -eq 0 ] && return 0
+  clt_window_open && return 0   # open already, from an earlier run
+  case $said in
+    *"already installed"*)
+      die "Apple's Command Line Tools are on this Mac, but macOS looks for them in the wrong place ($(xcode-select -p 2>/dev/null || echo 'none is set')), so git cannot run. This command points it at them:
+
+    sudo xcode-select --reset
+
+It needs an administrator of this Mac: if you are not one, ask whoever is to run it. Then run this again." ;;
+  esac
+  die "Apple's installer for the Command Line Tools did not start. It said: ${said:-nothing}"
+}
+
 start_git() {
   step "1. git"
   WAIT_FOR_GIT=
@@ -161,12 +191,14 @@ start_git() {
   case $(xcode-select -p 2>/dev/null) in
     *.app/*)
       if git --version 2>&1 | grep -qi license; then
-        die "Xcode is installed but its license has not been accepted, so git will not run. Accept it with this, which asks for your Mac password, then run this again:
+        die "Xcode is installed but its license has not been accepted, so git will not run. Accept it with this, then run this again:
 
-    sudo xcodebuild -license accept"
+    sudo xcodebuild -license accept
+
+It needs an administrator of this Mac: if you are not one, ask whoever is to run it."
       fi ;;
   esac
-  quiet xcode-select --install
+  open_clt_window
   WAIT_FOR_GIT=1
   note "Apple's Command Line Tools bring git, which keeps your copy up to date."
   note "${BOLD}A window from Apple has opened: click Install, then Agree.${PLAIN}"
@@ -184,12 +216,12 @@ wait_for_git() {
     # Give the window a minute to appear before asking whether it is gone.
     if [ "$waited" -ge 60 ] && [ $((waited % 30)) -eq 0 ] && ! clt_window_open && ! git_ok; then
       if wait_for_return "Apple's window has closed, and git is not in yet. Press Return to open it again, or Ctrl-C to stop:"; then
-        quiet xcode-select --install
+        open_clt_window
       else
         die "Apple's install window closed before git was in. Run this again to reopen it."
       fi
     fi
-    [ "$waited" -lt 5400 ] || die "The Command Line Tools have not arrived after 90 minutes. If Apple's window shows an error, they can also be downloaded from developer.apple.com/download/all (search Command Line Tools; it needs an Apple ID). Then run this again."
+    [ "$waited" -lt 5400 ] || die "The Command Line Tools have not arrived after 90 minutes. If Apple's window shows an error, they can also be downloaded from developer.apple.com/download/all (search Command Line Tools; it needs an Apple ID, and installing what it downloads needs an administrator of this Mac: if you are not one, ask whoever is). Then run this again."
   done
   ok "$(git --version)"
 }
@@ -246,28 +278,48 @@ ensure_claude() {
   fi
   ok "$("$CLAUDE" --version 2>/dev/null | head -n 1) at $CLAUDE"
 
-  if "$CLAUDE" auth status --json 2>/dev/null | grep -q '"loggedIn": *true'; then
+  if claude_signed_in; then
     ok "signed in"
     return
   fi
-  note "Claude Code needs a paid Claude plan (Pro or Max) or an Anthropic Console account;"
-  note "the free plan does not include it."
+  note "Claude Code needs a paid Claude plan (Pro, Max, Team or Enterprise, including one"
+  note "from your employer) or an Anthropic Console account; the free plan does not include it."
+  note "Signed in to the Claude desktop app already? Claude Code still signs in once, here."
   if [ -z "$TTY" ]; then
     note "Sign in later, in Terminal: \"$CLAUDE\" auth login"
+    note "(with an Anthropic Console account: \"$CLAUDE\" auth login --console)"
     return
   fi
+  printf '        Sign in with a Claude plan (press Return), or a Console account (type c)? '
+  answer=
+  read -r answer <"$TTY" || answer=
+  case $answer in [Cc]*) how=--console ;; *) how=--claudeai ;; esac
   note "${BOLD}Your browser opens to sign in. Come back here when it says you are done.${PLAIN}"
   note "(Ctrl-C skips signing in for now, and the rest carries on.)"
   # Ctrl-C ends the sign-in alone: the trap keeps this script going.
   trap ':' INT
-  "$CLAUDE" auth login <"$TTY"
+  "$CLAUDE" auth login "$how" <"$TTY"
   trap - INT
-  if "$CLAUDE" auth status --json 2>/dev/null | grep -q '"loggedIn": *true'; then
+  if claude_signed_in; then
     ok "signed in"
   else
     note "Not signed in yet. Everything else carries on; the page's Setup tab says how to"
     note "sign in later."
   fi
+}
+
+# Signed in to an account that can run Claude Code. A claude.ai account on the
+# Free plan signs in but cannot, so it is named, with what to do.
+claude_signed_in() {
+  state=$("$CLAUDE" auth status --json 2>/dev/null)
+  printf '%s' "$state" | grep -q '"loggedIn": *true' || return 1
+  if printf '%s' "$state" | grep -q '"subscriptionType": *"free"'; then
+    note "This Claude account is on the Free plan, which does not include Claude Code."
+    note "Upgrade at claude.com/pricing, or sign in with a Console account instead:"
+    note "\"$CLAUDE\" auth login --console"
+    return 1
+  fi
+  return 0
 }
 
 # ------------------------------------------------------------- your copy
@@ -366,6 +418,26 @@ ensure_packages() {
 
 # ------------------------------------------------------------------ LaTeX
 
+# Run scripts/$1 in the copy, what it prints going to the log, and say once a
+# minute that it is still going: a download can stall, and silence reads as
+# stuck. It runs in the foreground, so Ctrl-C stops it, and the ticker stops
+# with this script. BS_TICK, in seconds, is for the tests.
+run_ticking() {
+  (
+    parent=$$ secs=0
+    while sleep 1; do
+      kill -0 "$parent" 2>/dev/null || exit 0
+      secs=$((secs + 1))
+      [ $((secs % ${BS_TICK:-60})) -eq 0 ] && note "still working ($((secs / 60)) min)..."
+    done
+  ) &
+  ticker=$!
+  (cd "$DIR" && "$UV" run --no-sync python "scripts/$1" >>"$LOG" 2>&1)
+  ran=$?
+  kill "$ticker" 2>/dev/null
+  return $ran
+}
+
 ensure_latex() {
   step "5. LaTeX, which typesets resumes"
   if [ -n "$NO_LATEX" ]; then
@@ -379,8 +451,9 @@ ensure_latex() {
     ok "$(printf '%s\n' "$found" | head -n 1)"
     return
   fi
-  note "Installing TinyTeX into ~/Library/TinyTeX: about 64 MB, a few minutes..."
-  if (cd "$DIR" && "$UV" run --no-sync python scripts/install_latex.py >>"$LOG" 2>&1); then
+  note "Installing TinyTeX into ~/Library/TinyTeX: about 64 MB. A few minutes, longer on a"
+  note "slow connection: it is still working while a line here says so, once a minute."
+  if run_ticking install_latex.py; then
     ok "TinyTeX, with the packages the templates use"
   else
     show_log_tail
@@ -417,6 +490,13 @@ on run
 end run
 EOF
   quiet osacompile -o "$app" "$tmp/main.applescript" || return 1
+  # Job Search's own icon (ui/icon.py) in place of the script icon. The asset
+  # catalog holds the old one, and would win over applet.icns.
+  if (cd "$DIR" && "$UV" run --no-sync python ui/icon.py --iconset "$tmp/icon.iconset") >>"$LOG" 2>&1 &&
+     quiet iconutil -c icns "$tmp/icon.iconset" -o "$app/Contents/Resources/applet.icns"; then
+    rm -f "$app/Contents/Resources/Assets.car"
+    quiet plutil -remove CFBundleIconName "$app/Contents/Info.plist"
+  fi
   # The copy this one opens. A path in single quotes, each ' written '\''.
   quoted=$(printf '%s' "$DIR" | sed "s/'/'\\\\''/g")
   cat >"$app/Contents/Resources/open.sh" <<EOF
@@ -469,17 +549,67 @@ ensure_app() {
   fi
 }
 
+# ---------------------------------------------------------------- the phone
+
+# `cd` to the copy, as a person would type it, so a command printed here works
+# from a new Terminal window: ~/job-search rather than the whole path, when the
+# copy is in the home folder under a plain name (ui/phone.py's cd does the same).
+cd_copy() {
+  case $DIR in
+    "$HOME"/*)
+      rest=${DIR#"$HOME"/}
+      case $rest in ''|*[!A-Za-z0-9._/-]*) ;; *) echo "cd ~/$rest"; return ;; esac ;;
+  esac
+  echo "cd $(shq "$DIR")"
+}
+
+# Job Search on the phone too, when asked (--phone) or when the user says yes:
+# ui/phone.py hands the page's port to launchd and points Tailscale at it.
+# Once it is set up, each run checks that it still works, from the same
+# diagnosis as the page's Setup tab, and says why not and what to do.
+ensure_phone() {
+  again="$(cd_copy) && sh install.sh --phone"
+  if [ -z "$PHONE" ]; then
+    if [ -f "$DIR/data/ui-remote.json" ]; then
+      step "7. Your phone"
+      if said=$(cd "$DIR" && "$UV" run --no-sync python ui/phone.py check 2>>"$LOG"); then
+        ok "$said"
+      else
+        printf '%s\n' "${said:-It could not be checked. To set it up again: $again}" |
+          fold -s -w 82 | sed 's/^/        /'
+      fi
+      return
+    fi
+    [ -n "$TTY" ] || return 0
+    step "7. Your phone (optional)"
+    note "Job Search can also be an icon on your phone's home screen, opening this page from"
+    note "anywhere. It needs the free Tailscale app, on this Mac and on your phone."
+    printf '        Set it up now? [y/N] '
+    answer=
+    read -r answer <"$TTY" || answer=
+    case $answer in
+      [Yy]*) ;;
+      *) note "Skipped. To set it up later, in Terminal: $again"; return ;;
+    esac
+  else
+    step "7. Your phone"
+  fi
+  (cd "$DIR" && "$UV" run --no-sync python ui/phone.py enable) ||
+    note "Not finished: see above. To try again, in Terminal: $again"
+}
+
 # ------------------------------------------------------------------- main
 
 main() {
-  NO_LATEX= NO_OPEN= DIR=
+  NO_LATEX= NO_OPEN= PHONE= DIR=
   while [ $# -gt 0 ]; do
     case $1 in
       --dir) DIR=${2:-}; shift ;;
       --dir=*) DIR=${1#--dir=} ;;
       --no-latex) NO_LATEX=1 ;;
       --no-open) NO_OPEN=1 ;;
-      -h|--help) sed -n '2,34p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0 ;;
+      --phone) PHONE=1 ;;
+      -h|--help) sed -n '2,39p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0 ;;
       *) die "Unknown option: $1 (try --help)" ;;
     esac
     shift
@@ -508,13 +638,21 @@ main() {
   ensure_packages
   ensure_latex
   ensure_app
+  ensure_phone
 
   step "Done"
-  note "$APP_NAME is on your Desktop: double-click it whenever you want the page. It runs"
-  note "with no window, and stops by itself ten minutes after you close the page's last tab."
+  case $APP in
+    "$HOME/Desktop"/*) where="on your Desktop" ;;
+    *) where="in the Applications folder in your home folder" ;;
+  esac
+  note "$APP_NAME is $where: double-click it whenever you want the page."
+  note "It runs with no window, and stops by itself ten minutes after you close the page's"
+  note "last tab. This Terminal window can be closed."
   if [ -z "$NO_OPEN" ]; then
-    note "Opening the page now. Its Setup tab walks you through the rest."
-    sh "$DIR/ui/launch.sh" || note "It did not open: see above, or double-click $APP_NAME."
+    note "Opening the page in your browser now. Its Setup tab walks you through the rest."
+    # Through the app, not from here: a page started from this window would be
+    # tied to it, and closing the window could stop the page.
+    open "$APP" 2>>"$LOG" || note "It did not open: double-click $APP_NAME, $where."
   fi
 }
 

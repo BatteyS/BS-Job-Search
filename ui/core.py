@@ -520,17 +520,87 @@ def probe_port(port: int, host: str = "127.0.0.1") -> tuple[str, str]:
 # 127.0.0.1 (DNS rebinding) would otherwise read this page as its own.
 LOCAL_NAMES = ("127.0.0.1", "localhost", "[::1]")
 
+def manifest(name: str = "BS Job Search") -> dict:
+    """The web app manifest that makes the page an app on a phone's home
+    screen: its name under the icon, the icon itself (ui/icon.py), and opening
+    full screen. Every path is relative, so a demo in a subfolder works too."""
+    return {"name": name, "short_name": "Job Search", "start_url": "./", "scope": "./",
+            "display": "standalone", "background_color": "#171716", "theme_color": "#2457a8",
+            "icons": [{"src": "icon-192.png", "sizes": "192x192", "type": "image/png"},
+                      {"src": "icon-512.png", "sizes": "512x512", "type": "image/png"},
+                      {"src": "icon-512.png", "sizes": "512x512", "type": "image/png",
+                       "purpose": "maskable"}]}
 
-def refusal(host: str | None, origin: str | None) -> str | None:
+
+# Phone access (ui/phone.py): this Mac's Tailscale address and the account it
+# answers, per machine and never tracked.
+REMOTE = os.path.join(ROOT, "data", "ui-remote.json")
+_remote: dict = {"mtime": None, "value": None}
+
+
+def remote_access() -> dict | None:
+    """{host, login, port} once ui/phone.py has set phone access up, else None.
+    Read again whenever the file changes, so turning it on or off needs no
+    restart."""
+    try:
+        mtime = os.path.getmtime(REMOTE)
+    except OSError:
+        return None
+    if _remote["mtime"] != mtime:
+        try:
+            with open(REMOTE, encoding="utf-8") as fh:
+                value = json.load(fh)
+            ok = isinstance(value, dict) and value.get("host") and value.get("login")
+            _remote.update(mtime=mtime, value=value if ok else None)
+        except (OSError, ValueError):
+            _remote.update(mtime=mtime, value=None)
+    return _remote["value"]
+
+
+def save_remote_access(host: str | None, login: str | None = None, port: int = 8765) -> None:
+    """Record phone access, or with no host, remove it."""
+    if not host:
+        try:
+            os.remove(REMOTE)
+        except FileNotFoundError:
+            pass
+        return
+    os.makedirs(os.path.dirname(REMOTE), exist_ok=True)
+    fd = os.open(REMOTE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump({"host": host.lower(), "login": login, "port": port}, fh, indent=1)
+
+
+def refusal(host: str | None, origin: str | None, login: str | None = None,
+            forwarded: bool = False) -> str | None:
     """Why the page will not answer a request, or None when it will.
 
     It answers only requests addressed to this machine by name, which stops DNS
     rebinding. A request that carries an Origin must also come from the page
     itself. Browsers send one with every POST and PUT, so another site's form or
     script cannot start a run or answer a card, although the browser lets it
-    send the request. curl and scripts send none, and are answered."""
+    send the request. curl and scripts send none, and are answered.
+
+    A phone's request arrives forwarded by `tailscale serve` (ui/phone.py),
+    which names the Tailscale account asking (`login`, from its
+    Tailscale-User-Login header, which serve sets and strips from what it
+    forwards). That is answered only once phone access is set up, only for the
+    account recorded then, and only at this Mac's tailnet address, whose own
+    pages are the one other origin allowed."""
     host = (host or "").strip().lower()
     name = host[:host.find("]") + 1] if host.startswith("[") else host.split(":")[0]
+    if forwarded or login is not None:
+        remote = remote_access()
+        if not remote:
+            return "This page answers this Mac alone: phone access is not set up here."
+        if (login or "").strip().lower() != str(remote["login"]).lower():
+            return f"This page answers a phone only through Tailscale, signed in as {remote['login']}."
+        if name not in LOCAL_NAMES and name != remote["host"]:
+            return f"This page answers only at {remote['host']}, not {host or 'no host'}."
+        if origin is not None and origin.strip().lower() not in (f"https://{remote['host']}",
+                                                                 f"http://{host}"):
+            return "A page on another site cannot use this one."
+        return None
     if name not in LOCAL_NAMES:
         return f"This page answers only at 127.0.0.1 or localhost, not {host or 'no host'}."
     if origin is not None and origin.strip().lower() != f"http://{host}":
@@ -717,17 +787,45 @@ def launcher() -> str | None:
     return path if path and os.path.isfile(path) else None
 
 
+def by_launchd() -> bool:
+    """Whether launchd started this server, at a request (ui/phone.py)."""
+    return os.environ.get("BS_LAUNCHD") == "1"
+
+
 def restart(port: int, runs: "Runs", popen=subprocess.Popen) -> None:
     """Start the launcher that will start this page again once it has stopped.
-    The caller stops the server after answering."""
+    The caller stops the server after answering. Under launchd there is nothing
+    to start: the next request does it, through the launcher, which installs
+    what an update added first."""
     path = launcher()
-    if not path:
+    if not path and not by_launchd():
         raise Stop(RESTART_BY_HAND)
     if runs.working():
         raise Stop("A run is still working in the Runs tab. Let it finish, or stop it, then "
                    "restart: a skill's conversation can be picked up again from Past runs.")
+    if by_launchd():
+        return
     popen(["/bin/sh", path, "--restart", str(port)], cwd=ROOT, stdin=subprocess.DEVNULL,
           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+def launchd_sockets(name: str = "Listeners") -> list:
+    """The listening sockets launchd holds for this page and hands to the
+    process it started (macOS's launch_activate_socket). That process must be
+    the one launchd started, which is why ui/launch.sh --launchd ends in exec."""
+    import ctypes
+    import socket
+    if sys.platform != "darwin":
+        raise RuntimeError("launchd hands out sockets on macOS only")
+    lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+    fds = ctypes.POINTER(ctypes.c_int)()
+    count = ctypes.c_size_t(0)
+    err = lib.launch_activate_socket(name.encode(), ctypes.byref(fds), ctypes.byref(count))
+    if err:
+        raise OSError(err, f"launchd has no {name} socket for this process: {os.strerror(err)}")
+    socks = [socket.socket(fileno=fds[i]) for i in range(count.value)]
+    lib.free(fds)
+    return socks
 
 
 class Idle:

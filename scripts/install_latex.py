@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -98,7 +99,10 @@ def install_tinytex() -> bool:
             say("Could not download TinyTeX's installer. Check the internet connection, "
                 "then try again.")
             return False
-        return run(["sh", script, "--no-path"]) == 0
+        # The script's first argument is a folder to keep its download in: it
+        # moves the bundle there. --no-path has to come after it, since given
+        # first it is taken for that folder, the move fails, and the script stops.
+        return run(["sh", script, tmp, "--no-path"]) == 0
 
 
 def tlmgr_install(tlmgr: str, packages: list[str]) -> bool:
@@ -125,7 +129,8 @@ def tlmgr_install(tlmgr: str, packages: list[str]) -> bool:
     return code == 0
 
 
-def test_build(exe: str) -> bool:
+def test_build(exe: str) -> tuple[bool, str]:
+    """Build the test page: (whether it built, what pdflatex printed)."""
     with tempfile.TemporaryDirectory() as tmp:
         tex = os.path.join(tmp, "test.tex")
         with open(tex, "w", encoding="utf-8") as fh:
@@ -136,12 +141,72 @@ def test_build(exe: str) -> bool:
                                capture_output=True, text=True, errors="replace", timeout=180)
         except (OSError, subprocess.SubprocessError) as exc:
             say(f"pdflatex did not run: {exc}")
-            return False
+            return False, ""
         if os.path.isfile(os.path.join(tmp, "test.pdf")):
-            return True
+            return True, p.stdout
         errors = [ln for ln in p.stdout.splitlines() if ln.startswith("!") or ".tex:" in ln]
         say("\n".join(errors[:12]) or p.stdout[-1500:])
-        return False
+        return False, p.stdout
+
+
+# What pdflatex says when a package needs a file this TeX lacks.
+MISSING = re.compile(r"File `([^']+)' not found")
+
+
+def missing_files(log: str) -> list[str]:
+    return sorted(set(MISSING.findall(log or "")))
+
+
+def packages_for(tlmgr: str, files: list[str]) -> list[str]:
+    """The TeX Live packages holding these files, from tlmgr's index of the
+    repository. Its answer names each package on a line of its own ending in
+    a colon, with the matching files indented below."""
+    found = []
+    for name in files:
+        try:
+            p = subprocess.run([tlmgr, "search", "--global", "--file", "/" + name],
+                               capture_output=True, text=True, errors="replace", timeout=300)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        for line in p.stdout.splitlines():
+            line = line.rstrip()
+            if line.endswith(":") and not line[:1].isspace() and not line.startswith("tlmgr"):
+                found.append(line[:-1])
+    return sorted(set(found))
+
+
+def ready(exe: str, can_add: bool) -> int:
+    """Build the test page. On the user's own TinyTeX (`can_add`), each file a
+    build reports missing is looked up and its package added, and the page
+    built again, a few rounds at most: the list in latex.py can fall behind
+    what a newer package asks for."""
+    ok, log = test_build(exe)
+    tlmgr = latex.tool("tlmgr", exe)
+    rounds = 0
+    while not ok and can_add and tlmgr and rounds < 3:
+        need = missing_files(log)
+        if not need:
+            break
+        packages = packages_for(tlmgr, need)
+        if not packages:
+            say(f"No TeX Live package holds {', '.join(need)}.")
+            break
+        say(f"\nThe test page also needs {', '.join(need)}, so adding {', '.join(packages)}.")
+        if not tlmgr_install(tlmgr, packages):
+            break
+        ok, log = test_build(exe)
+        rounds += 1
+    if ok:
+        say("LaTeX is ready: it built a test page. Resumes and letters can be built now, "
+            "with nothing to restart.")
+        return 0
+    need = missing_files(log)
+    if need and not can_add:
+        say(f"\nThis TeX lacks {', '.join(need)}. Run this again to install TinyTeX, which has "
+            "them, in your own folder with no password; this TeX is left as it is.")
+    else:
+        say("\nThe test page did not build: see above.")
+    return 1
 
 
 def describe(exe: str | None, missing: list[str]) -> str:
@@ -159,14 +224,10 @@ def main(argv: list[str] | None = None) -> int:
 
     exe, missing = latex.find()
     say(describe(exe, missing))
-    if exe and not missing:
-        if test_build(exe):
-            say("LaTeX is ready: it built a test page.")
-            return 0
-        say("It has every package, but the test page did not build: see above.")
-        return 1
     if args.check:
-        return 1
+        return 1 if not exe or missing else ready(exe, can_add=False)
+    if exe and not missing:
+        return ready(exe, can_add=latex.is_tinytex(exe))
     if platform.system() == "Windows":
         say(WINDOWS)
         return 1
@@ -201,12 +262,7 @@ def main(argv: list[str] | None = None) -> int:
     say("\n" + describe(exe, missing))
     if not exe or missing:
         return 1
-    if not test_build(exe):
-        say("The packages are in, but the test page did not build: see above.")
-        return 1
-    say("LaTeX is ready: it built a test page. Resumes and letters can be built now, "
-        "with nothing to restart.")
-    return 0
+    return ready(exe, can_add=latex.is_tinytex(exe))
 
 
 if __name__ == "__main__":

@@ -6,6 +6,8 @@
 #     sh ui/launch.sh                  # start the page if need be, then open it
 #     sh ui/launch.sh --restart PORT   # the page's Restart button: wait for the
 #                                      # page on PORT to stop, then start it again
+#     sh ui/launch.sh --launchd        # what launchd runs, once phone access is
+#                                      # set up (ui/phone.py): become the page
 #
 # The page runs with no Terminal window, and stops itself ten minutes after its
 # last tab closes (server.py --idle-exit), so nothing is left running all day.
@@ -22,8 +24,11 @@ cd "$(dirname "$0")/.." || exit 1
 ROOT=$(pwd -P)
 LOG="$HOME/Library/Logs/BS Job Search.log"
 IDLE_MINUTES=10
-FIRST_PORT=8765
-LAST_PORT=8774
+# The page's port, and the launchd agent that holds it once phone access is set
+# up (ui/phone.py). Tests name others, so as not to touch the real ones.
+FIRST_PORT=${BS_PORT:-8765}
+LAST_PORT=$((FIRST_PORT + 9))
+AGENT=${BS_AGENT:-io.github.batteys.bs-job-search}
 
 # Opened from Finder, PATH is only /usr/bin:/bin:/usr/sbin:/sbin. path_helper
 # adds what /etc/paths.d names (MacTeX's /Library/TeX/texbin among them), then
@@ -46,9 +51,14 @@ notify() {
   osascript -e "display notification \"$1\" with title \"Job Search\"" >/dev/null 2>&1 || :
 }
 
+# Said when a start takes more than a few seconds: the first start, or one after
+# an update, installs packages first.
+READYING="Getting the page ready. The first start, or one after an update, can take a minute or two."
+
 mkdir -p "$(dirname "$LOG")" 2>/dev/null
-# Keep the log from growing forever: past 1 MB, keep its last 200 KB.
-if [ -f "$LOG" ] && [ "$(wc -c <"$LOG")" -gt 1000000 ]; then
+# Keep the log from growing forever: past 1 MB, keep its last 200 KB. Not under
+# launchd, which holds the log open.
+if [ "${1:-}" != --launchd ] && [ -f "$LOG" ] && [ "$(wc -c <"$LOG")" -gt 1000000 ]; then
   tail -c 200000 "$LOG" >"$LOG.tmp" && mv "$LOG.tmp" "$LOG"
 fi
 
@@ -63,10 +73,22 @@ sh \"$ROOT/install.sh\"
 
 It installs what is missing."
 
+# Phone access (ui/phone.py): launchd holds the page's port and runs this with
+# --launchd at the first connection. Install what an update added, then become
+# the page in this same process, since launchd hands its socket only to the
+# process it started.
+if [ "${1:-}" = --launchd ]; then
+  "$UV" sync --inexact --quiet || echo "uv sync failed; starting with what is installed" >&2
+  BS_LAUNCHD=1
+  BS_LAUNCHER="$ROOT/ui/launch.sh"
+  export BS_LAUNCHD BS_LAUNCHER
+  exec "$ROOT/.venv/bin/python" ui/server.py --launchd --idle-exit "$IDLE_MINUTES"
+fi
+
 # What answers on a port: this folder's page ("this"), something else
-# ("busy"), or nothing ("free").
+# ("busy"), or nothing ("free"). A second argument waits that many seconds.
 probe() {
-  body=$(curl -s -m 3 "http://127.0.0.1:$1/api/health" 2>/dev/null)
+  body=$(curl -s -m "${2:-3}" "http://127.0.0.1:$1/api/health" 2>/dev/null)
   [ $? -eq 7 ] && { echo free; return; }
   case $body in
     *'"app":"BS Job Search"'*) ;;
@@ -86,7 +108,9 @@ open_page() {
 # program's; anything else ends here with what the page printed.
 start_on() {
   port=$1
-  size=$(wc -c <"$LOG" 2>/dev/null || echo 0)
+  # The braces carry the redirect's own error too: on a first start there is
+  # no log yet, and the shell, not wc, would say so in Terminal.
+  size=$( { wc -c <"$LOG"; } 2>/dev/null || echo 0)
   date "+--- %Y-%m-%d %H:%M:%S starting on port $port" >>"$LOG"
   BS_LAUNCHER="$ROOT/ui/launch.sh" nohup "$UV" run ui/server.py --no-open --port "$port" \
     --idle-exit "$IDLE_MINUTES" >>"$LOG" 2>&1 </dev/null &
@@ -109,7 +133,7 @@ All of it is in $LOG"
     sleep 0.5
     waited=$((waited + 1))
     if [ "$waited" -eq 8 ]; then
-      notify "Getting the page ready. The first start after an update installs what it added, which can take a minute or two."
+      notify "$READYING"
     fi
     if [ "$waited" -ge 1200 ]; then
       fail "The page has not answered after ten minutes. What it printed is in $LOG"
@@ -132,6 +156,27 @@ if [ "${1:-}" = --restart ]; then
 fi
 
 port=$FIRST_PORT
+
+# With phone access set up, launchd holds the page's port and starts the page at
+# the first request, which is this one. When it does not answer as this copy
+# (broken, or set up for another folder), the page opens anyway, on the next
+# free port, for this Mac alone, and the log says how to set phone access up
+# again.
+if launchctl print "gui/$(id -u)/$AGENT" >/dev/null 2>&1; then
+  for wait in 3 120; do
+    got=$(probe "$FIRST_PORT" "$wait")
+    if [ "$got" = this ]; then
+      open_page "$FIRST_PORT"
+      exit 0
+    fi
+    [ "$got" = free ] && break     # launchd is not listening after all
+    [ "$wait" = 3 ] && notify "$READYING"
+  done
+  printf '%s %s\n' "$(date '+--- %Y-%m-%d %H:%M:%S')" "launchd's agent ($AGENT) did not answer as this copy ($got), so the page starts here as usual. To set phone access up again: cd '$ROOT' && sh install.sh --phone" >>"$LOG"
+  notify "Phone access is not answering, so the page opens on this Mac alone. To fix it, run sh install.sh --phone in this copy's folder."
+  [ "$got" = free ] || port=$((FIRST_PORT + 1))
+fi
+
 while [ "$port" -le "$LAST_PORT" ]; do
   case $(probe "$port") in
     this)

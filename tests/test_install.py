@@ -33,7 +33,9 @@ STUBS = {
     "id": """if [ "$1" = -u ] && [ -n "${STUB_ROOT:-}" ]; then echo 0; else exec /usr/bin/id "$@"; fi""",
     "xcode-select": """case "$1" in
   -p) if [ -f "$STUB_STATE/clt" ]; then echo "$STUB_STATE/dev"; else exit 2; fi ;;
-  --install) echo "xcode-select --install" >>"$STUB_STATE/calls"; touch "$STUB_STATE/clt" ;;
+  --install) echo "xcode-select --install" >>"$STUB_STATE/calls"
+    if [ -n "${STUB_CLT_SAYS:-}" ]; then echo "$STUB_CLT_SAYS" >&2; exit 1; fi
+    touch "$STUB_STATE/clt" ;;
 esac""",
     "git": """[ -f "$STUB_STATE/clt" ] || { echo "xcrun: error: no developer tools" >&2; exit 1; }
 exec "$REAL_GIT" "$@\"""",
@@ -52,6 +54,8 @@ cp "$3" "$2/Contents/Resources/Scripts/main.applescript" && : >"$2/Contents/Info
   -extract) sed -n "s/^$2=//p" "$6" 2>/dev/null ;;
 esac""",
     "codesign": "exit 0",
+    "iconutil": 'echo "iconutil $*" >>"$STUB_STATE/calls"; : >"$5"',   # -c icns SET -o OUT
+    "open": 'echo "open $*" >>"$STUB_STATE/calls"',
 }
 
 # Installed by the fake installers above, into ~/.local/bin.
@@ -64,7 +68,10 @@ esac"""
 CLAUDE = """echo "claude $*" >>"$STUB_STATE/calls"
 case "$*" in
   --version) echo "2.1.317 (Claude Code)" ;;
-  "auth status --json") if [ -f "$STUB_STATE/signed-in" ]; then echo '{"loggedIn": true}'; else echo '{"loggedIn": false}'; fi ;;
+  "auth status --json")
+    if [ -f "$STUB_STATE/free" ]; then echo '{"loggedIn": true, "authMethod": "claude.ai", "subscriptionType": "free"}'
+    elif [ -f "$STUB_STATE/signed-in" ]; then echo '{"loggedIn": true, "authMethod": "claude.ai", "subscriptionType": "pro"}'
+    else echo '{"loggedIn": false}'; fi ;;
 esac"""
 
 
@@ -124,9 +131,12 @@ def mac(tmp_path):
         else:
             argv, stdin = ["sh", how, *args], subprocess.DEVNULL
         (state / "calls").write_text("")
+        # A session of its own: no terminal to ask in, even when pytest runs in
+        # one, so nothing waits for an answer that never comes.
         r = subprocess.run(argv, env=e, cwd=str(tmp_path), capture_output=True, text=True,
                            input=text if stdin is None else None,
-                           stdin=stdin if stdin is not None else None, timeout=120)
+                           stdin=stdin if stdin is not None else None, timeout=120,
+                           start_new_session=True)
         r.calls = (state / "calls").read_text().splitlines()
         r.all = r.stdout + r.stderr
         return r
@@ -235,3 +245,162 @@ def test_a_folder_in_the_way_is_not_touched(mac):
     r = mac.run("--no-latex", "--no-open")
     assert r.returncode == 1 and "is not a copy of BS Job Search" in r.stderr
     assert os.listdir(taken) == ["notes.txt"]
+
+
+def test_the_phone_is_asked_for_and_never_blocks_the_rest(mac):
+    """--phone hands over to ui/phone.py, through the copy's own Python; a
+    phone step that does not finish still leaves the Desktop app made. With no
+    terminal to ask in, and no --phone, nothing is asked."""
+    r = mac.run("--no-latex", "--no-open")
+    assert r.returncode == 0 and "Your phone" not in r.stdout
+    r = mac.run("--no-latex", "--no-open", "--phone")
+    assert r.returncode == 0, r.all
+    assert "uv run --no-sync python ui/phone.py enable" in "\n".join(r.calls)
+    assert "Not finished" in r.stdout                       # the stand-in copy has no phone.py
+    assert (mac.home / "Desktop" / APP / "Contents/Resources/open.sh").is_file()
+    # Every command it prints works from a new Terminal window: it starts with its cd.
+    assert "cd ~/job-search && sh install.sh --phone" in r.stdout
+
+
+def test_a_free_plan_is_not_taken_for_signed_in(mac):
+    """A claude.ai account on the Free plan signs in, but cannot run Claude Code:
+    the installer says so, and how to sign in with a Console account instead."""
+    (mac.state / "free").touch()
+    r = mac.run("--no-latex", "--no-open")
+    assert r.returncode == 0, r.all
+    assert "Free plan" in r.stdout and "auth login --console" in r.stdout
+    assert "ok    signed in" not in r.stdout
+    # With no terminal to sign in from, both ways are printed for later.
+    assert "Sign in later" in r.stdout and r.stdout.count("auth login --console") >= 2
+
+
+def test_tools_apple_says_are_in_but_macos_cannot_find_stop_with_the_fix(mac):
+    r = mac.run("--no-latex", "--no-open", extra={
+        "STUB_CLT_SAYS": "xcode-select: error: command line tools are already installed, "
+                         "use \"Software Update\" in System Settings to install updates"})
+    assert r.returncode == 1
+    assert "sudo xcode-select --reset" in r.stderr and "administrator" in r.stderr
+    assert "A window from Apple has opened" not in r.stdout
+    r = mac.run("--no-latex", "--no-open", extra={"STUB_CLT_SAYS": "something else went wrong"})
+    assert r.returncode == 1 and "did not start" in r.stderr and "something else" in r.stderr
+
+
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root can write anywhere")
+def test_a_local_folder_root_owns_is_named_with_the_command_filled_in(mac):
+    local = mac.home / ".local"
+    local.mkdir()
+    local.chmod(0o555)
+    try:
+        r = mac.run("--no-latex", "--no-open")
+    finally:
+        local.chmod(0o755)
+    assert r.returncode == 1
+    user = subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip()
+    assert f"sudo chown -R {user} '{local}'" in r.stderr
+    assert "administrator" in r.stderr
+
+
+def test_latex_says_it_is_still_working_while_it_installs(mac):
+    """A download can stall, and silence reads as stuck: the installer says once
+    a minute (here, a second) that LaTeX is still installing."""
+    (mac.template / "scripts/install_latex.py").write_text(
+        "import sys, time\n"
+        "if '--check' in sys.argv:\n    print('No LaTeX here.'); sys.exit(1)\n"
+        "time.sleep(2.5)\nprint('LaTeX is ready.')\n")
+    commit(mac.template, "a LaTeX installer that takes a while")
+    r = mac.run("--no-open", extra={"BS_TICK": "1"})
+    assert r.returncode == 0, r.all
+    assert "still working (0 min)..." in r.stdout
+    assert "TinyTeX, with the packages the templates use" in r.stdout
+
+
+def test_done_says_where_the_app_is_and_opens_it_through_the_app(mac):
+    """The page opens through Job Search itself, not from the installer's
+    Terminal window, which could otherwise stop it on closing."""
+    r = mac.run("--no-latex")
+    assert r.returncode == 0, r.all
+    app = mac.home / "Desktop" / APP
+    assert f"open {app}" in r.calls
+    assert "Job Search is on your Desktop" in r.stdout
+
+    theirs = mac.home / "Desktop" / APP / "Contents"
+    (theirs / "Info.plist").write_text("CFBundleIdentifier=someone.else\n")
+    (theirs / "Resources/open.sh").write_text("#!/bin/sh\n")
+    r = mac.run("--no-latex")
+    assert r.returncode == 0, r.all
+    assert f"open {mac.home / 'Applications' / APP}" in r.calls
+    assert "Job Search is in the Applications folder in your home folder" in r.stdout
+
+
+def test_phone_access_set_up_before_is_checked_again(mac):
+    """Once phone access is set up, each run asks ui/phone.py whether it still
+    works, and passes on why not, rather than saying it is set up."""
+    assert mac.run("--no-latex", "--no-open").returncode == 0
+    copy = mac.home / "job-search"
+    (copy / "data").mkdir(exist_ok=True)
+    (copy / "data/ui-remote.json").write_text("{}")
+    (copy / "ui/phone.py").write_text(
+        "import sys\n"
+        "if sys.argv[1:] == ['check']:\n"
+        "    print('Phone access: switched off. Turn it on in Login Items.')\n"
+        "    print('    cd ~/job-search && sh install.sh --phone')\n"
+        "    sys.exit(1)\n")
+    r = mac.run("--no-latex", "--no-open")
+    assert r.returncode == 0, r.all
+    assert "uv run --no-sync python ui/phone.py check" in "\n".join(r.calls)
+    assert "switched off" in r.stdout and "set up;" not in r.stdout
+    assert "cd ~/job-search && sh install.sh --phone" in r.stdout
+
+    (copy / "ui/phone.py").write_text("print('set up: https://mac.example.ts.net/ opens the page on your phone')\n")
+    r = mac.run("--no-latex", "--no-open")
+    assert "ok    set up: https://mac.example.ts.net/" in r.stdout
+
+
+# ------------------------------------------------------------ the launcher
+
+LAUNCH_STUBS = {
+    # The port's answer: a page started here, the agent's (as another copy), or nothing.
+    "curl": """for a in "$@"; do url=$a; done
+port=$(printf '%s' "$url" | sed -n 's|http://127.0.0.1:\\([0-9]*\\)/.*|\\1|p')
+if [ -f "$STUB_STATE/started-$port" ]; then printf '{"app":"BS Job Search","root":"%s"}' "$STUB_ROOT"; exit 0; fi
+if [ "$port" = "$BS_PORT" ] && [ "$STUB_AGENT" = another ]; then
+  printf '{"app":"BS Job Search","root":"/elsewhere"}'; exit 0
+fi
+exit 7""",
+    "launchctl": '[ "$1" = print ] && [ "$STUB_AGENT" != none ]',
+    "uv": """echo "uv $*" >>"$STUB_STATE/calls"
+prev=; for a in "$@"; do [ "$prev" = --port ] && touch "$STUB_STATE/started-$a"; prev=$a; done
+sleep 2""",
+    "open": 'echo "open $*" >>"$STUB_STATE/calls"',
+    "osascript": 'echo "osascript $*" >>"$STUB_STATE/calls"',
+}
+
+
+@pytest.mark.parametrize("agent, port", [("none", 18765), ("another", 18766), ("free", 18765)])
+def test_the_desktop_app_opens_the_page_whatever_the_agent_does(tmp_path, agent, port):
+    """ui/launch.sh, as Job Search on the Desktop runs it. With phone access set
+    up, launchd's agent holds the port; when it does not answer as this copy,
+    the page starts on the next free port all the same, for this Mac alone, and
+    says how to set phone access up again. A first start says nothing in
+    Terminal about a log that is not there yet."""
+    home, state = tmp_path / "home", tmp_path / "state"
+    stubs = home / ".local" / "bin"       # first on the PATH the launcher builds
+    stubs.mkdir(parents=True)
+    state.mkdir()
+    for name, body in LAUNCH_STUBS.items():
+        script(stubs / name, body)
+    env = {"HOME": str(home), "PATH": f"{stubs}:/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "C",
+           "STUB_STATE": str(state), "STUB_ROOT": os.path.realpath(ROOT), "STUB_AGENT": agent,
+           "BS_PORT": "18765", "BS_AGENT": "test.agent"}
+    r = subprocess.run(["sh", os.path.join(ROOT, "ui", "launch.sh")], env=env, capture_output=True,
+                       text=True, timeout=60, start_new_session=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert r.stderr == ""
+    calls = (state / "calls").read_text()
+    assert f"open http://127.0.0.1:{port}/" in calls
+    log = (home / "Library/Logs/BS Job Search.log").read_text()
+    if agent == "none":
+        assert "Phone access" not in calls and "did not answer" not in log
+    else:
+        assert "Phone access is not answering" in calls
+        assert "did not answer as this copy" in log and "sh install.sh --phone" in log

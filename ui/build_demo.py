@@ -36,6 +36,7 @@ sys.path.insert(0, HERE)
 import claude_run  # noqa: E402
 import core  # noqa: E402
 import digest_applies  # noqa: E402  (core put scripts/ on the path)
+import icon  # noqa: E402
 import latex  # noqa: E402
 import tracker  # noqa: E402
 
@@ -180,6 +181,12 @@ def write_site(name: str, meta: dict, repo: str, get: dict, out: str) -> None:
                         f"<title>BS Job Search demo: {html.escape(meta['who'])}</title>")
     with open(os.path.join(site, "index.html"), "w", encoding="utf-8") as fh:
         fh.write(page)
+    # What makes a demo addable to a phone's home screen, as the page is.
+    with open(os.path.join(site, "manifest.webmanifest"), "w", encoding="utf-8") as fh:
+        json.dump(core.manifest(f"BS Job Search demo: {meta['who']}"), fh, indent=1)
+    for file, size in (("apple-touch-icon.png", 180), ("icon-192.png", 192), ("icon-512.png", 512)):
+        with open(os.path.join(site, file), "wb") as fh:
+            fh.write(icon.png(size))
     shutil.copytree(os.path.join(repo, "Applications"), os.path.join(site, "files"))
     banner = (f"<b>Demo:</b> {html.escape(meta['who'])}, {html.escape(meta['about'])}. Every "
               "person, employer, and posting here is invented, and nothing you do here is "

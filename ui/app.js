@@ -8,6 +8,9 @@
 const $ = (sel, el = document) => el.querySelector(sel);
 const statusEl = $("#status");
 const DEMO = window.DEMO || null;
+// Whether this tab is on the Mac itself, or on another device, a phone through
+// Tailscale (ui/phone.py): what the page says to do depends on it.
+const ON_MAC = ["127.0.0.1", "localhost", "[::1]", "::1"].includes(location.hostname);
 
 function say(text, isError = false) {
   statusEl.textContent = text;
@@ -326,7 +329,8 @@ function fileUrl(company, name) {
 }
 
 async function showFile(viewer, url, name) {
-  if (name.toLowerCase().endsWith(".pdf")) { viewer.replaceChildren(el("iframe", { class: "pdf", src: url })); return; }
+  // A phone shows only a framed PDF's first page, so a link opens all of it.
+  if (name.toLowerCase().endsWith(".pdf")) { viewer.replaceChildren(el("p", { class: "small" }, el("a", { href: url, target: "_blank", rel: "noopener" }, "Open the whole PDF")), el("iframe", { class: "pdf", src: url })); return; }
   viewer.replaceChildren(el("p", { class: "muted" }, "Loading…"));
   try {
     const text = await api(url);
@@ -472,16 +476,51 @@ function attachRun(run, live) {
     api("/api/runs/" + run.id).then(r => { pre.textContent = r.output.join("\n"); });
     return;
   }
-  const es = new EventSource(`/api/runs/${run.id}/stream`);
-  es.onmessage = ev => { pre.textContent += (pre.textContent ? "\n" : "") + ev.data; pre.scrollTop = pre.scrollHeight; };
-  es.addEventListener("done", ev => { st.textContent = ev.data; st.className = "st " + ev.data; es.close(); if (loaded.digests && currentDigest) openDigest(currentDigest); });
-  es.onerror = () => { es.close(); api("/api/runs/" + run.id).then(r => { pre.textContent = r.output.join("\n"); st.textContent = r.status; st.className = "st " + r.status; }); };
+  // Live output. A phone drops the stream when it puts the page in the
+  // background, and a Mac can sleep or change networks: then catch up from the
+  // run itself, and follow it again from there while it is still going, at
+  // once when the page is shown again.
+  let es = null, seen = 0, ended = false, retry = null;
+  const end = status => {
+    ended = true; clearTimeout(retry);
+    st.textContent = status; st.className = "st " + status;
+    document.removeEventListener("visibilitychange", wake);
+    if (loaded.digests && currentDigest) openDigest(currentDigest);
+  };
+  const follow = () => {
+    if (ended || es) return;
+    es = new EventSource(`/api/runs/${run.id}/stream?start=${seen}`);
+    es.onmessage = ev => {
+      seen = ev.lastEventId !== "" ? Number(ev.lastEventId) + 1 : seen + 1;
+      pre.textContent += (pre.textContent ? "\n" : "") + ev.data; pre.scrollTop = pre.scrollHeight;
+    };
+    es.addEventListener("done", ev => { es.close(); es = null; end(ev.data); });
+    es.onerror = () => { es.close(); es = null; catchUp(1500); };
+  };
+  const catchUp = delay => {
+    clearTimeout(retry);
+    retry = setTimeout(() => api("/api/runs/" + run.id).then(r => {
+      pre.textContent = r.output.join("\n"); pre.scrollTop = pre.scrollHeight; seen = r.output.length;
+      if (r.status === "running") follow(); else end(r.status);
+    }).catch(e => {
+      // A server that no longer knows the run has restarted, and the page
+      // reloads (heartbeat); anything else is the Mac not answering yet.
+      if (e.status === 404) { ended = true; document.removeEventListener("visibilitychange", wake); }
+      else catchUp(3000);
+    }), delay);
+  };
+  const wake = () => { if (!document.hidden && !ended && !es) catchUp(0); };
+  document.addEventListener("visibilitychange", wake);
+  follow();
 }
 
 // ------------------------------------------------------- a skill's run
 
 const ACTIVE = ["starting", "running", "waiting", "idle"];
 const WORKING = ["starting", "running", "waiting"];   // idle: the turn is over
+// A phone's keyboard has Return and no Shift+Return, so there Return is a new
+// line and the Send button sends; on a Mac, Return sends, as in a chat.
+const TOUCH = !!(window.matchMedia && matchMedia("(pointer: coarse)").matches);
 
 async function attachClaudeRun(run, live) {
   const view = $("#run-view");
@@ -490,7 +529,8 @@ async function attachClaudeRun(run, live) {
   const stop = el("button", { class: "action small" }, "Stop");
   const transcript = el("div", { class: "chat" });
   const cardArea = el("div");
-  const reply = el("textarea", { class: "reply", rows: 2, placeholder: "Reply… (Enter sends, Shift+Enter for a new line)" });
+  const reply = el("textarea", { class: "reply", rows: 2, enterkeyhint: TOUCH ? "enter" : "send",
+    placeholder: TOUCH ? "Reply… (tap Send to send it)" : "Reply… (Enter sends, Shift+Enter for a new line)" });
   const send = el("button", { class: "action primary" }, "Send");
   const replyBox = el("div", { class: "replybox", hidden: "" }, reply, send);
   const when = new Date(run.started * 1000).toLocaleTimeString();
@@ -543,7 +583,9 @@ async function attachClaudeRun(run, live) {
     catch (e) { say(e.message, true); }
   };
   send.onclick = doSend;
-  reply.onkeydown = ev => { if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); doSend(); } };
+  // isComposing: Return that ends a word being composed (Japanese, Chinese, an
+  // accent) picks the word, and sends nothing.
+  reply.onkeydown = ev => { if (!TOUCH && ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); doSend(); } };
 
   function render(ev) {
     state.seen = ev.i + 1;
@@ -571,19 +613,54 @@ async function attachClaudeRun(run, live) {
     transcript.scrollTop = transcript.scrollHeight;
   }
 
-  try {
-    const full = await api("/api/runs/" + run.id);
-    for (const ev of full.output) render(ev);
+  // The run so far, then live from where that ends. A dropped stream (a phone
+  // putting the page in the background, the Mac sleeping or changing networks)
+  // reconnects in place, from the last event seen, so the transcript and a
+  // half-typed reply stay. While the Mac does not answer it tries again, less
+  // often each time, up to every 30 seconds, and at once when the page is shown
+  // again or the network comes back.
+  let es = null, retry = null, backoff = 1500, over = false;
+  const later = fn => {
+    if (over) return;
+    clearTimeout(retry);
+    retry = setTimeout(fn, backoff);
+    backoff = Math.min(backoff * 2, 30000);
+  };
+  const finish = () => {
+    over = true; clearTimeout(retry);
+    document.removeEventListener("visibilitychange", wake);
+    window.removeEventListener("online", wake);
+  };
+  const connect = () => {
+    clearTimeout(retry);
+    if (over || es) return;
+    es = new EventSource(`/api/runs/${run.id}/stream?start=${state.seen}`);
+    es.onmessage = ev => { backoff = 1500; try { render(JSON.parse(ev.data)); } catch (e) { /* a malformed line */ } };
+    es.addEventListener("done", ev => { es.close(); es = null; setStatus(ev.data); finish(); });
+    es.onerror = () => { es.close(); es = null; later(connect); };
+  };
+  const replay = async () => {
+    let full;
+    try { full = await api("/api/runs/" + run.id); }
+    catch (e) {
+      // A server that no longer knows the run has restarted, and the page reloads (heartbeat).
+      if (e.status === 404) { say(e.message, true); finish(); } else later(replay);
+      return;
+    }
+    for (const ev of full.output) if (ev.i >= state.seen) render(ev);
     setStatus(full.status);
     state.replayed = true;
     showFiled(WORKING.includes(full.status) ? null : full.updated);
-    if (!ACTIVE.includes(full.status)) return;
-  } catch (e) { say(e.message, true); return; }
-
-  const es = new EventSource(`/api/runs/${run.id}/stream?start=${state.seen}`);
-  es.onmessage = ev => { try { render(JSON.parse(ev.data)); } catch (e) { /* a malformed line */ } };
-  es.addEventListener("done", ev => { setStatus(ev.data); es.close(); });
-  es.onerror = () => { es.close(); setTimeout(() => { panel.remove(); attachRun({ ...run, status: state.status }, true); }, 1500); };
+    if (ACTIVE.includes(full.status)) connect(); else finish();
+  };
+  const wake = () => {
+    if (document.hidden || over || es) return;
+    backoff = 1500;
+    if (state.replayed) connect(); else replay();
+  };
+  document.addEventListener("visibilitychange", wake);
+  window.addEventListener("online", wake);
+  replay();
 }
 
 function cardView(runId, card) {
@@ -764,19 +841,21 @@ async function setupState() {
 async function loadSetup() {
   const view = $("#setup-view");
   const checking = () => el("div", {}, el("p", { class: "muted small" }, "Checking…"));
-  const parts = { claude: checking(), files: checking(), problems: el("div"), scan: checking(), resume: checking() };
+  const parts = { claude: checking(), files: checking(), problems: el("div"), scan: checking(), resume: checking(), phone: checking() };
   const ready = el("div");
   const start = el("button", { class: "action primary", disabled: "", onclick: () => startSkill("setup", {}) }, "Set up");
   const copy = el("section", { id: "copy", class: "copy" }, el("p", { class: "muted small" }, "Checking this copy…"));
   view.replaceChildren(
     el("div", { class: "toolbar" }, el("h2", {}, "Set up"), el("button", { class: "action small", onclick: () => loadSetup() }, "Check again")),
     DEMO ? el("p", { class: "banner" }, DEMO.setupNote) : "",
+    !DEMO && !ON_MAC ? el("p", { class: "banner" }, "These steps run on your Mac: this page is open on another device, and each command here goes in Terminal on the Mac.") : "",
     ready,
     copy,
     setupStep("1", "Claude Code", "The page runs your own Claude Code, with your own login, to do the interviewing, scoring and writing.", parts.claude),
     setupStep("2", "Your profile", "Set up interviews you and writes these files. Every write to your resume facts, stories or profile shows you the exact text first and waits for your approval.", el("div", {}, parts.files, parts.problems)),
     setupStep("3", "Before your first scan", "Two free job sources need a key. Each is saved to a gitignored file on this machine, never through Claude.", parts.scan),
     setupStep("4", "Before your first resume", "LaTeX typesets resumes and letters. Setup does not need it, so it can install while you go.", parts.resume),
+    setupStep("5", "On your phone", "Optional: Job Search as an icon on your phone's home screen, opening this page from anywhere. The page stays on this Mac.", parts.phone),
   );
 
   let claude = null, state = null;
@@ -794,7 +873,9 @@ async function loadSetup() {
     .then(s => { claude = s; parts.claude.replaceChildren(...claudeView(s)); settle(); });
   const stated = setupState().then(s => { state = s; parts.files.replaceChildren(...(s ? filesView(s, start) : [el("p", { class: "muted" }, "Could not read how far setup has got.")])); settle(); });
 
-  if (DEMO) { for (const k of ["scan", "resume"]) parts[k].replaceChildren(el("p", { class: "muted small" }, "Checked on your own copy.")); return; }
+  if (DEMO) { for (const k of ["scan", "resume", "phone"]) parts[k].replaceChildren(el("p", { class: "muted small" }, "Checked on your own copy.")); return; }
+  api("/api/phone").then(s => parts.phone.replaceChildren(...phoneView(s)))
+    .catch(e => parts.phone.replaceChildren(el("p", { class: "muted small" }, e.message)));
   let checks;
   try { checks = await api("/api/setup/checks"); }
   catch (e) { parts.scan.replaceChildren(el("p", { class: "muted" }, e.message)); parts.resume.replaceChildren(); return; }
@@ -828,11 +909,41 @@ function claudeView(s) {
     el("p", {}, el("span", { class: "chip bad" }, "not installed"), " Install it in Terminal (in Applications, Utilities), then press Check again. If the page runs in a Terminal window of its own, use a new one. It needs a paid Claude plan or an Anthropic Console account."),
     command(s.install),
     el("p", { class: "muted small", html: 'Other ways to install it are in <a href="https://code.claude.com/docs/en/setup" target="_blank" rel="noopener">Claude Code\'s setup guide</a>.' })];
+  if (s.plan === "free") return [
+    el("p", {}, el("span", { class: "chip bad" }, "Free plan"), " " + s.reason),
+    el("p", { class: "muted small" }, "To sign in with a Console account, run this in Terminal on the Mac:"),
+    command(s.login_console)];
   if (s.login) return [
-    el("p", {}, el("span", { class: "chip bad" }, "not logged in"), " Run this once in Terminal (in Applications, Utilities). It opens your browser to sign in; then press Check again. If the page runs in a Terminal window of its own, use a new one."),
-    command(s.login),
+    el("p", {}, el("span", { class: "chip bad" }, "not logged in"), " Run one of these once in Terminal on the Mac (in Applications, Utilities). It opens your browser to sign in; then press Check again. If the page runs in a Terminal window of its own, use a new one."),
+    el("p", { class: "muted small" }, "With a Claude plan (Pro, Max, Team or Enterprise):"), command(s.login),
+    el("p", { class: "muted small" }, "With an Anthropic Console account:"), command(s.login_console),
     el("p", { class: "muted small" }, "The Claude desktop app's own login does not carry over to it.")];
   return [el("p", {}, el("span", { class: "chip bad" }, "not available"), " " + (s.reason || ""))];
+}
+
+// Phone access (ui/phone.py): Tailscale carries the phone to this Mac, and
+// launchd starts the page when it is asked for. When it is set up but does not
+// work, `why` says why and what to do, as the installer does. Each command
+// starts with its `cd`, so it works from a new Terminal window.
+function phoneView(s) {
+  if (!s.mac) return [el("p", { class: "muted small" }, "Phone access is set up on a Mac for now.")];
+  const awake = el("p", { class: "muted small" }, s.awake);
+  if (s.ready) return [
+    el("p", {}, el("span", { class: "chip ok" }, "ready"), ` On your phone, with the Tailscale app signed in as ${s.remote.login}: open this in Safari (Chrome on Android), then Share, Add to Home Screen.`),
+    command(s.url), awake,
+    el("p", { class: "muted small" }, s.recover),
+    el("p", { class: "muted small" }, "To turn it off, run this in Terminal on the Mac:"), command(s.disable)];
+  const ts = s.tailscale || {};
+  if (s.protected) return [
+    el("p", {}, el("span", { class: "chip warn" }, "move the copy first"), ` This copy is in ${s.protected}, which macOS does not let anything started in the background open, so the page could not start for your phone. Move it to a folder of its own, then set phone access up there. Close the page first; this remakes Job Search on the Desktop for the new place:`),
+    command(s.move)];
+  if (s.why) return [
+    el("p", {}, el("span", { class: "chip warn" }, s.why.label), " " + s.why.text),
+    s.why.code === "tailscale" ? awake : command(s.setup)];
+  return [
+    el("p", {}, el("span", { class: "chip" }, "not set up"), " The free Tailscale app, on this Mac and on your phone, carries your phone to this page privately: only your own devices can reach it. Set it up in Terminal on the Mac:"),
+    command(s.setup),
+    ts.found ? "" : el("p", { class: "muted small", html: 'It asks you to install Tailscale first: from the Mac App Store, or from <a href="https://tailscale.com/download" target="_blank" rel="noopener">tailscale.com/download</a> if you are an administrator of the Mac.' })];
 }
 
 function filesView(s, start) {
@@ -1153,10 +1264,13 @@ function markdown(text) {
 // ------------------------------------------------------------ the server
 // The page asks /api/health once a minute, which keeps a server started with
 // --idle-exit (Job Search on the Desktop) up while any tab is open. When the
-// server has gone, a banner says how to start it again, and the page reloads
-// itself once it answers.
+// server does not answer, a banner says why that may be and how to start it
+// again. When it answers again, the page reloads only if it is another server
+// than the one it loaded from (a new `started`); the same one, back after a
+// blip, carries on as it was, with anything typed still there.
 
-let HEALTH = null, serverGone = false, restarting = false;
+let HEALTH = null, serverGone = false, restarting = false, gonePoll = null;
+
 
 function serverBanner(text, bad = false) {
   let b = $("#server-banner");
@@ -1168,11 +1282,42 @@ function serverBanner(text, bad = false) {
 
 function restartHow() { return HEALTH && HEALTH.restart ? RESTART_APP : RESTART_HOW; }
 
+function goneText() {
+  if (!ON_MAC) return "Can't reach your Mac. It may be asleep or offline, or Tailscale may be off on this phone or on the Mac. This page picks up by itself once it answers.";
+  if (HEALTH && HEALTH.launchd) return "The page is not answering. Open Job Search on your Desktop, or restart the Mac if that does not bring it back, and this tab picks up by itself.";
+  if (HEALTH && HEALTH.restart) return "The page has stopped: it stops by itself ten minutes after its last tab closes, and a browser can pause a tab it has hidden for long. Open Job Search on your Desktop to start it again, and this tab picks up by itself.";
+  return "The page has stopped. Start it again (start.command, or Job Search on your Desktop), and this tab picks up by itself.";
+}
+
+// /api/health, or null. A Mac out of reach can leave a request hanging for a
+// minute or more, so it gives up after 20 seconds, which is still time enough
+// for launchd to start the page from cold.
+async function askHealth(ms = 20000) {
+  const ctl = window.AbortController ? new AbortController() : null;
+  const timer = ctl && setTimeout(() => ctl.abort(), ms);
+  try {
+    const r = await fetch("/api/health", { cache: "no-store", signal: ctl ? ctl.signal : undefined });
+    if (r.ok) return await r.json();
+  } catch (e) { /* not answering */ }
+  finally { clearTimeout(timer); }
+  return null;
+}
+
+let beating = false;
 async function heartbeat() {
-  let h = null;
-  try { const r = await fetch("/api/health"); if (r.ok) h = await r.json(); } catch (e) { /* not answering */ }
+  if (beating) return;   // one at a time: a slow answer is not a reason to ask again
+  beating = true;
+  try { await beat(); } finally { beating = false; }
+}
+
+async function beat() {
+  let h = await askHealth();
+  // One miss is often a blip, as when a phone wakes the page: ask once more first.
+  if (!h && !serverGone && !restarting) { await new Promise(r => setTimeout(r, 2000)); h = await askHealth(); }
   if (h) {
-    if (serverGone && !restarting) { location.reload(); return; }
+    if (restarting) return;   // restartPage() reloads once the new server answers
+    if (HEALTH && h.started !== HEALTH.started) { location.reload(); return; }   // another server: this tab is out of date
+    if (serverGone) { serverGone = false; clearInterval(gonePoll); gonePoll = null; serverBanner(""); }
     const first = !HEALTH;
     HEALTH = h;
     if (first && copyState && copyState.restart) showCopy(copyState);   // now it can offer Restart
@@ -1180,10 +1325,8 @@ async function heartbeat() {
   }
   if (restarting || serverGone) return;
   serverGone = true;
-  serverBanner(HEALTH && HEALTH.restart
-    ? "The page has stopped: it stops by itself ten minutes after its last tab closes, and a browser can pause a tab it has hidden for long. Open Job Search on your Desktop to start it again, and this tab picks up by itself."
-    : "The page has stopped. Start it again (start.command, or Job Search on your Desktop), and this tab picks up by itself.", true);
-  setInterval(heartbeat, 5000);
+  serverBanner(goneText(), true);
+  gonePoll = setInterval(heartbeat, 5000);
 }
 
 async function restartPage(btn) {
@@ -1196,7 +1339,11 @@ async function restartPage(btn) {
   const until = Date.now() + 10 * 60 * 1000;
   const poll = async () => {
     try { const h = await (await fetch("/api/health")).json(); if (h.started !== before) { location.reload(); return; } } catch (e) { /* not back yet */ }
-    if (Date.now() > until) { serverBanner("The page has not come back after ten minutes. Open Job Search on your Desktop; what it printed is in ~/Library/Logs/BS Job Search.log.", true); return; }
+    if (Date.now() > until) {
+      serverBanner(ON_MAC ? "The page has not come back after ten minutes. Open Job Search on your Desktop; what it printed is in ~/Library/Logs/BS Job Search.log."
+        : "The page has not come back after ten minutes. Open Job Search on the Mac's Desktop; what it printed is in ~/Library/Logs/BS Job Search.log, on the Mac. If the Mac is asleep or offline, this page cannot reach it.", true);
+      return;
+    }
     setTimeout(poll, 1500);
   };
   setTimeout(poll, 1500);
@@ -1206,11 +1353,19 @@ async function restartPage(btn) {
 
 // A run started from another tab, or resumed from one, shows up here too,
 // without a reload. attachRun() skips the ones already on the page.
-setInterval(async () => {
+async function pollRuns() {
   if (!loaded.runs || document.hidden) return;
   try { for (const r of await api("/api/runs")) attachRun(r, ACTIVE.includes(r.status)); }
   catch (e) { /* the server is restarting */ }
-}, 4000);
+}
+setInterval(pollRuns, 4000);
+// A page shown again (a phone back from the background, a tab brought to the
+// front) checks at once rather than at the next tick: the server first, which
+// reloads the page if it has restarted meanwhile, then the runs.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden || DEMO) return;
+  heartbeat().then(pollRuns);
+});
 
 // --------------------------------------------------------------- demo
 // The demos have no server. Reads come from what the builder bundled, ticking

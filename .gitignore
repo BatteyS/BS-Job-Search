@@ -67,3 +67,7 @@ Previous Employment Records/
 # Personal Claude Code settings for this folder: hooks, and the permissions
 # "Allow always" saves. Per machine.
 .claude/settings.local.json
+
+# Phone access (ui/phone.py): this Mac's Tailscale address and the account the
+# page answers. Per machine.
+data/ui-remote.json

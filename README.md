@@ -25,11 +25,13 @@ Open Terminal (in Applications, then Utilities), paste this line, and press Retu
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/BatteyS/BS-Job-Search/main/install.sh)"
 ```
 
-It installs only what is missing, asks for no password, and says what it is doing as it
-goes. When it finishes, **Job Search** is on your Desktop and the page is open in your
-browser. From then on, double-click Job Search whenever you want the page: it opens in
-your browser with no Terminal window, and stops by itself ten minutes after you close the
-page's last tab.
+It installs only what is missing, all of it into your own home folder, and says what it
+is doing as it goes. It asks for no password itself; Apple's Command Line Tools come
+through a window of Apple's, which on some Macs asks for an administrator. When it
+finishes, **Job Search** is on your Desktop and the page is open in your browser, and the
+Terminal window can be closed. From then on, double-click Job Search whenever you want the
+page: it opens in your browser with no Terminal window, and stops by itself ten minutes
+after you close the page's last tab.
 
 What it installs, in order:
 
@@ -39,12 +41,15 @@ What it installs, in order:
 2. [uv](https://docs.astral.sh/uv/), which runs the Python this workflow is pinned to and
    installs its packages, without touching any other Python on the Mac.
 3. Claude Code, then its sign-in, in your browser. The page runs your own Claude Code to
-   do the interviewing, scoring and writing, so it needs a paid Claude plan (Pro or Max) or
-   an Anthropic Console account: the free plan does not include Claude Code.
+   do the interviewing, scoring and writing, so it needs any paid Claude plan, including
+   one from your employer, or an Anthropic Console account: the free plan does not include
+   Claude Code. The installer asks which you have. Signed in to the Claude desktop app
+   already? Claude Code still signs in once, on its own.
 4. Your copy of this template, in `~/job-search`, and its Python packages.
 5. LaTeX, which typesets resumes and letters: [TinyTeX](https://yihui.org/tinytex/), about
    64 MB, in `~/Library/TinyTeX`.
 6. Job Search, on your Desktop.
+7. If you want it, Job Search on your phone too: see [On your phone](#on-your-phone).
 
 It needs macOS 13 (Ventura) or newer, as Claude Code does, on Apple silicon or Intel. Run
 the same line again whenever you like: what is done is skipped, and Job Search is made
@@ -90,10 +95,12 @@ On Windows, install [Git for Windows](https://git-scm.com/downloads/win) first.
 The page opens on it until your profile is written.
 
 - **Claude Code** comes first. The page runs your own copy, with your own login, to do
-  the interviewing, scoring and writing; it needs a paid Claude plan or an Anthropic
-  Console account. If it is not installed or not logged in, the tab shows the one command
-  to run for your system. Run it in a terminal (a new one, if the page runs in one), then
-  press **Check again**.
+  the interviewing, scoring and writing; it needs any paid Claude plan or an Anthropic
+  Console account. If it is not installed, the tab shows the command to run for your
+  system; if it is not logged in, the sign-in command for each kind of account
+  (`claude auth login`, or `claude auth login --console` for a Console account); and if
+  the account is on the Free plan, which cannot run Claude Code, it says so. Run the
+  command in a terminal (a new one, if the page runs in one), then press **Check again**.
 - Then press **Set up**. It interviews you and writes six files, each described in
   [`examples/README.md`](examples/README.md). Most of the time goes on your resume: it
   asks, role by role, for the detail a resume leaves out, because every tailored resume
@@ -122,9 +129,11 @@ is in `~/Library/Logs/BS Job Search install.log`, and everything the page prints
 | What happens | What to do |
 |---|---|
 | It needs macOS 13 or newer | Claude Code does not run on older macOS. System Settings, General, Software Update says whether this Mac can take a newer one. |
-| Apple's window for the Command Line Tools closed, or shows an error | Press Return when the installer asks, to open it again. Failing that, download Command Line Tools for Xcode from [developer.apple.com/download/all](https://developer.apple.com/download/all/) (it needs an Apple ID), then run the line again. |
+| Apple's window for the Command Line Tools closed, or shows an error | Press Return when the installer asks, to open it again. Failing that, download Command Line Tools for Xcode from [developer.apple.com/download/all](https://developer.apple.com/download/all/) (it needs an Apple ID, and installing it needs an administrator of the Mac), then run the line again. |
+| The Command Line Tools are installed, but macOS looks in the wrong place | The installer says so. `sudo xcode-select --reset` points macOS at them. |
 | Xcode's license has not been accepted | Xcode is installed but has never been opened: run `sudo xcodebuild -license accept` once. |
-| `~/.local` belongs to another user | An earlier install run with `sudo` made it root's. `sudo chown -R "$USER" ~/.local` gives it back. Never run the installer itself with `sudo`. |
+| `~/.local` belongs to another user | An earlier install run with `sudo` made it root's. The installer prints the `sudo chown` command that gives it back, with your name and folder filled in. Never run the installer itself with `sudo`. |
+| A fix above starts with `sudo` | It needs an administrator of this Mac. If you are not one, ask whoever is: they can run it from their own account, or in your Terminal window after `su` and their account name. |
 | On a company network | One that inspects HTTPS breaks uv's downloads; the installer notices, and switches uv to the Mac's own certificates (`native-tls = true` in `~/.config/uv/uv.toml`). |
 | macOS asks whether Terminal may use the Desktop | Click Allow. If you did not, Job Search is in the Applications folder in your home folder, to drag where you like. |
 | Terminal runs under Rosetta | It works, but slowly. Untick Open using Rosetta in Terminal's Get Info, in Finder. |
@@ -132,6 +141,7 @@ is in `~/Library/Logs/BS Job Search install.log`, and everything the page prints
 | Job Search cannot find its folder | The copy was moved or renamed: run `sh install.sh` in its folder. |
 | Job Search says the page did not start | Its dialog shows the last of what the page printed, and the page's log has all of it. |
 | The browser cannot reach 127.0.0.1 | The page stopped, as it does ten minutes after its last tab closes; a browser can also pause a tab it has hidden that long. Double-click Job Search again. |
+| Job Search on the phone opens to an error | Wake the Mac and check that Tailscale is on, on the phone, then swipe Job Search away in the phone's app switcher and open it again. [On your phone](#on-your-phone) has the rest. |
 
 Keep the copy out of a Documents or Desktop folder that iCloud Drive syncs: iCloud can move
 its Python packages and git files to the cloud to save space, which breaks them.
@@ -157,7 +167,7 @@ LaTeX typesets resumes and letters. Install a distribution that provides `pdflat
 
 | System | Install |
 |---|---|
-| macOS | **Install LaTeX** on the page's Setup tab, or `uv run python scripts/install_latex.py`. It installs [TinyTeX](https://yihui.org/tinytex/) into `~/Library/TinyTeX` with the packages the templates use, asking for no password, and builds a test page to prove the fonts work. A MacTeX or BasicTeX that already has those packages is used as it is, and one that lacks them is left alone. To add them to it instead, which needs your password: `sudo tlmgr update --self && sudo tlmgr install enumitem fontaxes geometry hyperref kastrup newtx tex-gyre titlesec xstring`. |
+| macOS | **Install LaTeX** on the page's Setup tab, or `uv run python scripts/install_latex.py`. It installs [TinyTeX](https://yihui.org/tinytex/) into `~/Library/TinyTeX` with the packages the templates use, asking for no password, and builds a test page to prove the fonts work. A MacTeX or BasicTeX that already has those packages is used as it is, and one that lacks them is left alone. To add them to it instead, which needs an administrator's password: `sudo tlmgr update --self && sudo tlmgr install carlisle enumitem etoolbox fontaxes geometry hyperref iftex kastrup newtx tex-gyre titlesec xcolor xkeyval xpatch xstring`. `doctor.py` prints the same command. |
 | Windows | [MiKTeX](https://miktex.org/download). When its installer asks, let it install missing packages on the fly (MiKTeX Console's Settings change it later): the first resume build then fetches them without stopping to ask. |
 | Linux | `sudo apt install texlive-latex-recommended texlive-latex-extra texlive-fonts-extra`, or your distribution's equivalent |
 
@@ -260,11 +270,13 @@ approve.
 
 ### About the page
 
-Start it with Job Search on your Desktop, which the Mac installer makes, or with
+Start it with Job Search on your Desktop, which the Mac installer makes, or on your phone
+([On your phone](#on-your-phone)), or with
 `start.command` (`start.cmd` on Windows) or `uv run ui/server.py`; starting it again while
 it is up opens the running page. Job Search runs it in the background through
-`ui/launch.sh`, on the first free port from 8765, and it stops by itself ten minutes after
-its last tab closes. When an update changes the page's own code, a page Job Search started
+`ui/launch.sh`, on the first free port from 8765 (always 8765 once phone access is on,
+since launchd starts it there), and it stops by itself ten minutes after its last tab
+closes. When an update changes the page's own code, a page Job Search started
 has a **Restart now** button; one started in a terminal is stopped there with Ctrl+C and
 started again. If the page stops while a tab is open, the tab says so, and picks up by
 itself once the page is running again. Besides running the skills, it lets you
@@ -283,9 +295,10 @@ on another machine. A status moves forward or ends, and **Undo** removes the las
 if you picked the wrong one. A note can hold what they said or why it ended, which the
 scan reads too, but not an email address or a phone number, since the file is tracked.
 
-It answers only requests addressed to `127.0.0.1` or `localhost`, and none from a page
-on another site, so a website open in the same browser can neither read it nor start a
-skill or answer a card.
+It answers only requests addressed to `127.0.0.1` or `localhost` or, with phone access on,
+requests Tailscale forwards from your own account at your Mac's tailnet address; and none
+from a page on another site, so a website open in the same browser can neither read it nor
+start a skill or answer a card.
 
 Each skill runs on a model and effort level picked for it, shown on its button and at
 the top of its run with the reason:
@@ -384,6 +397,74 @@ python scripts/jobspy_source.py --clusters <cluster> --metros <metro> --sites in
 
 `--sites` takes any of `indeed,linkedin,glassdoor,ziprecruiter`, which is also the way to
 try one board before turning it on for every scan.
+
+## On your phone
+
+Job Search can be an icon on your phone's home screen too, opening the same page from
+anywhere, while the page and everything in it stay on your Mac. It takes the free
+Tailscale app on the Mac and on the phone, signed in to the same account, and a Mac with
+Job Search on its Desktop. On the Mac, install Tailscale from the Mac App Store, or from
+[tailscale.com/download](https://tailscale.com/download) if you are an administrator of
+the Mac, since that installer asks for one; its command-line tool is not needed. Then
+say yes when the Mac installer asks about your phone, or run this in Terminal:
+
+```bash
+cd ~/job-search && sh install.sh --phone
+```
+
+A copy kept somewhere else: `cd` to that folder instead. The copy has to be in a folder
+of its own, such as `~/job-search`, where the installer puts it: macOS does not let
+anything started in the background open Documents, Desktop, Downloads, or iCloud Drive,
+so phone access refuses a copy there and says how to move it.
+
+It says when to install or sign in to Tailscale. The first time, Tailscale may print a
+`login.tailscale.com` link to turn HTTPS on for your tailnet: open it (hold Command and
+double-click it) and click **Enable**. Only the tailnet's owner or an admin of it can, so
+on a tailnet someone else runs, such as an employer's, ask them. Then it prints your
+Mac's address, `https://<your-mac>.<your-tailnet>.ts.net`, which the Setup tab shows too.
+On the phone, sign in to the Tailscale app, open that address in Safari (Chrome on
+Android), and choose **Share**, then **Add to Home Screen**. The icon opens the page full
+screen, like an app.
+
+The Setup tab, and the installer each time it runs, check that phone access still works,
+and say why when it does not: Tailscale off on the Mac, the Mac renamed, a setup that did
+not finish, or Job Search switched off in System Settings, General, Login Items &
+Extensions. Each comes with what to do, usually the command above.
+
+How it works, and why it is safe to leave on:
+
+- **The page starts when it is asked for.** macOS's launchd holds the page's port and
+  starts the page at the first request, from the phone or from Job Search on the
+  Desktop. It still stops ten minutes after its last tab closes, and nothing runs between
+  uses.
+- **Only your own devices reach it.** Tailscale gives your Mac an address that only
+  devices signed in to your Tailscale account can open, over HTTPS, and passes each
+  request to the page, which still listens on the Mac alone. Tailscale says which
+  account is asking, and the page answers only the one set up on this Mac
+  (`data/ui-remote.json`, which never leaves it).
+- **The Mac has to be awake.** A Mac sleeps on its own once its display turns off, even
+  plugged in, and a laptop also sleeps with its lid closed; then the phone cannot reach
+  it. To keep it reachable, keep it plugged in and turn on **Prevent automatic sleeping on
+  power adapter when the display is off**, in System Settings, Battery, Options. On a
+  desktop Mac the switch is **Prevent automatic sleeping when the display is off**:
+  search System Settings for it. After a restart, someone has to log in on the Mac before
+  the phone can reach it. Nothing here changes these settings for you.
+- **If the icon opens to an error**, the phone could not reach the Mac when it opened.
+  Wake the Mac and check that Tailscale is on, on the phone, then swipe Job Search away in
+  the phone's app switcher and open it again. Once the page is open, it says when it
+  cannot reach the Mac, and picks up by itself when it can.
+- **On a Mac shared by several accounts**, phone access lets the others open your page
+  too, at `127.0.0.1:8765`, whenever they like, since it starts when asked for. Turn it
+  off if that matters.
+
+To turn it off, which puts the page back to answering the Mac alone (the Setup tab shows
+this with your copy's folder in it):
+
+```bash
+cd ~/job-search && uv run python ui/phone.py disable
+```
+
+It will not while a run is working in the page, since turning it off stops the page.
 
 ## Backing up, and a second machine
 

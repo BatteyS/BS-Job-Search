@@ -557,3 +557,50 @@ def test_a_turn_that_hits_the_plans_limit_says_which_and_when_it_resets(monkeypa
     monkeypatch.setattr(claude_run, "limit_reached", lambda: "")
     assert "out of credit" in claude_run._explain("Credit balance is too low")
     assert claude_run._explain("Something else broke") == "Something else broke"
+
+
+# ------------------------------------------------------------ the account
+
+def test_the_plan_is_read_only_for_a_claude_account():
+    """A claude.ai account names its plan; a Console account, or a Claude Code
+    too old to say, names none, which blocks nothing."""
+    pro = {"loggedIn": True, "authMethod": "claude.ai", "subscriptionType": "pro"}
+    assert claude_run.auth_state(pro) == (True, "pro")
+    assert claude_run.auth_state({**pro, "subscriptionType": "Free"}) == (True, "free")
+    assert claude_run.auth_state({**pro, "subscriptionType": None}) == (True, None)
+    assert claude_run.auth_state({"loggedIn": True, "authMethod": "console",
+                                  "subscriptionType": "free"}) == (True, None)
+    assert claude_run.auth_state({"loggedIn": True}) == (True, None)
+    assert claude_run.auth_state({"loggedIn": False}) == (False, None)
+
+
+def test_a_free_plan_is_named_before_a_run_fails_on_it(monkeypatch):
+    pytest.importorskip("claude_agent_sdk")
+    import subprocess
+    said = {"auth": '{"loggedIn": true, "authMethod": "claude.ai", "subscriptionType": "free"}'}
+
+    def fake_run(argv, **kw):
+        return subprocess.CompletedProcess(argv, 0, said["auth"] if "auth" in argv else "2.1.317", "")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(claude_run.shutil, "which", lambda n: "/u/bin/claude")
+    monkeypatch.setattr(claude_run, "find_claude", lambda: ("/u/bin/claude", "on PATH"))
+    s = claude_run.claude_status()
+    assert not s["available"] and s["plan"] == "free" and s["reason"] == claude_run.FREE_PLAN
+    assert s["login"] == "claude auth login" and s["login_console"] == "claude auth login --console"
+
+    said["auth"] = '{"loggedIn": true, "authMethod": "claude.ai", "subscriptionType": "max"}'
+    s = claude_run.claude_status()
+    assert s["available"] and s["plan"] == "max" and "login" not in s
+
+    said["auth"] = '{"loggedIn": false}'
+    s = claude_run.claude_status()   # signed out: both ways in, for the Setup tab
+    assert s["login"] == "claude auth login" and s["login_console"] == "claude auth login --console"
+
+
+def test_a_turn_refused_for_the_plan_says_what_to_do(monkeypatch):
+    monkeypatch.setattr(claude_run, "limit_reached", lambda: "")
+    text = claude_run._explain("Your account does not have access to Claude Code.")
+    assert text.startswith(claude_run.FREE_PLAN) and "does not have access" in text
+    # A usage limit that also says to upgrade is still the limit.
+    assert "usage limit" in claude_run._explain("Usage limit reached. Upgrade your plan for more.")
+    assert "--console" in claude_run._explain("Not logged in")

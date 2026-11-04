@@ -83,3 +83,56 @@ def test_doctor_says_what_a_system_tex_lacks(monkeypatch, tmp_path):
     assert rows[1]["status"] == "MISSING" and rows[1]["detail"] == "newtx, titlesec"
     # A system TeX's tlmgr needs sudo, so the no-password way comes first.
     assert rows[1]["fix"].index("install_latex.py") < rows[1]["fix"].index("sudo")
+
+
+def test_the_list_covers_what_newtxtext_loads():
+    """newtxtext.sty's own \\RequirePackage lines, wherever a TeX here has it:
+    each needs a file the check looks for, or a fresh TinyTeX misses it."""
+    import re
+    import subprocess
+    found = [d for d in latex.bin_dirs() if os.path.isfile(os.path.join(d, "kpsewhich"))]
+    if not found:
+        pytest.skip("no TeX here to read newtxtext.sty from")
+    path = subprocess.run([os.path.join(found[0], "kpsewhich"), "newtxtext.sty"],
+                          capture_output=True, text=True).stdout.strip()
+    if not path:
+        pytest.skip("this TeX has no newtxtext.sty")
+    wanted = set()
+    for line in open(path, encoding="utf-8", errors="replace"):
+        if line.lstrip().startswith("%"):
+            continue
+        m = re.match(r"\s*\\RequirePackage(\[[^]]*\])?\{([^}]*)\}", line)
+        if m and not m.group(1):     # an optioned load is fontspec, for xelatex and lualatex
+            wanted |= {p.strip() for p in m.group(2).split(",")}
+    in_kernel = {"ifthen", "textcomp", "mweights", "fontspec"}
+    have = {f.rsplit(".", 1)[0] for f in latex.FILES}
+    assert wanted - in_kernel <= have, f"latex.FILES misses {sorted(wanted - in_kernel - have)}"
+
+
+def test_tinytex_is_asked_for_no_path_after_its_folder(monkeypatch):
+    import install_latex
+    calls = []
+    monkeypatch.setattr(install_latex.shutil, "which", lambda name: "/usr/bin/curl")
+    monkeypatch.setattr(install_latex, "run", lambda argv, **kw: calls.append(argv) or 0)
+    assert install_latex.install_tinytex()
+    script = calls[0][calls[0].index("-o") + 1]
+    assert calls[1] == ["sh", script, os.path.dirname(script), "--no-path"]
+
+
+def test_a_file_the_test_page_lacks_is_found_and_added(monkeypatch):
+    import subprocess
+    import install_latex
+    builds = iter([(False, "! LaTeX Error: File `xpatch.sty' not found.\n"), (True, "")])
+    monkeypatch.setattr(install_latex, "test_build", lambda exe: next(builds))
+    monkeypatch.setattr(install_latex.latex, "tool", lambda name, exe=None: "/tiny/bin/tlmgr")
+    index = "tlmgr: package repository https://mirror.example (not verified)\nxpatch:\n\ttexmf-dist/tex/latex/xpatch/xpatch.sty\n"
+    monkeypatch.setattr(install_latex.subprocess, "run",
+                        lambda argv, **kw: subprocess.CompletedProcess(argv, 0, index, ""))
+    added = []
+    monkeypatch.setattr(install_latex, "tlmgr_install", lambda tlmgr, pkgs: added.extend(pkgs) or True)
+    assert install_latex.ready("/tiny/bin/pdflatex", can_add=True) == 0
+    assert added == ["xpatch"]
+    # A system TeX is not changed: the user is told what it lacks.
+    builds = iter([(False, "! LaTeX Error: File `scalefnt.sty' not found.\n")])
+    monkeypatch.setattr(install_latex, "test_build", lambda exe: next(builds))
+    assert install_latex.ready("/Library/TeX/texbin/pdflatex", can_add=False) == 1

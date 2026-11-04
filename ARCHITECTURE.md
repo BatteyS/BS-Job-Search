@@ -221,8 +221,29 @@ runs resumes its conversation from Claude Code's own record. A page the launcher
 it (`BS_LAUNCHER`), so after an update to its own code it can restart itself: it starts
 `launch.sh --restart` on its own, stops, and the launcher starts it again through
 `uv run`, which installs what the update added. The tab reloads itself once `/api/health`
-reports a new start time, and a tab whose server has gone says so and reconnects the same
-way.
+reports a new start time. A tab whose server does not answer says so, and picks up again
+once it does: it reloads only when the answer comes from a new server, so a blip, such as
+a phone waking the page, loses nothing typed. A run's live output reconnects in place on
+its own, from the last line or event it had.
+
+Phone access (`ui/phone.py`, `sh install.sh --phone`) adds two things on the Mac, and
+leaves the page listening there alone. A LaunchAgent holds `127.0.0.1:8765` with launchd's
+`Sockets` and runs `launch.sh --launchd` at the first connection, which syncs the packages
+and then `exec`s the page in the same process, since launchd hands its socket
+(`launch_activate_socket`) only to the process it started; the page serves on it, stops
+when idle as before, and the next connection starts it again, so a restart there is only
+stopping. Job Search on the Desktop sees the agent and lets that same request start the
+page; when the agent does not answer as this copy, it starts the page on the next free
+port as before, for the Mac alone, and says phone access needs setting up again. The Setup
+tab and the installer share one diagnosis of a setup that has stopped working
+(`phone.diagnose`). And `tailscale serve` gives the Mac an HTTPS address on the user's
+tailnet that forwards to the page, naming the account asking in `Tailscale-User-Login`,
+which serve sets and strips from what it forwards. `core.refusal` answers a forwarded
+request only once `data/ui-remote.json` records phone access, only for that account, and
+only at the Mac's tailnet name, whose own pages are the one other origin it allows. The
+page carries a web app manifest and an icon drawn in code (`ui/icon.py`), so a phone adds
+it to its home screen as an app; Job Search on the Desktop has the same icon, as a Mac
+tile.
 
 `ui/build_demo.py` builds the same page as static files for each example profile, from
 its `examples/<name>/demo/` folder: it lays the example out like a copy of this repo,

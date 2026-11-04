@@ -146,17 +146,17 @@ def claude_status() -> dict:
         return {"available": False, "cli": None, "version": None, "reason": how,
                 "install": install_command()}
     import subprocess
-    version, logged_in = "", None
+    version, logged_in, plan = "", None, None
     try:
         out = subprocess.run([cli, "--version"], capture_output=True, text=True, timeout=5)
         version = (out.stdout or out.stderr).strip().split("\n")[0]
         out = subprocess.run([cli, "auth", "status", "--json"], capture_output=True,
                              text=True, timeout=5)
-        logged_in = bool(json.loads(out.stdout).get("loggedIn"))
+        logged_in, plan = auth_state(json.loads(out.stdout))
     except (OSError, subprocess.TimeoutExpired, ValueError, AttributeError):
         pass
     out = {"available": logged_in is not False, "cli": cli, "how": how,
-           "version": version, "logged_in": logged_in, "reason": ""}
+           "version": version, "logged_in": logged_in, "plan": plan, "reason": ""}
     if logged_in is False and how == BUNDLED:
         out["install"] = install_command()
         out["reason"] = (f"Claude Code is not installed. Install it in a terminal with "
@@ -164,6 +164,11 @@ def claude_status() -> dict:
     elif logged_in is False:
         out["login"] = login_command(cli)
         out["reason"] = _explain("Not logged in", cli)
+    elif plan == "free":
+        # Signed in, to a plan that cannot run Claude Code: say so before a run fails.
+        out.update(available=False, login=login_command(cli), reason=FREE_PLAN)
+    if out.get("login"):
+        out["login_console"] = out["login"] + " --console"
     return out
 
 
@@ -676,19 +681,40 @@ def limit_reached(windows: dict | None = None, now: float | None = None) -> str:
     return ""
 
 
+# A claude.ai account on the Free plan signs in, but cannot run Claude Code.
+FREE_PLAN = ("This Claude account is on the Free plan, which does not include Claude Code. "
+             "Upgrade at claude.com/pricing (any paid plan works, including one from your "
+             "employer), or sign in with an Anthropic Console account instead; then press "
+             "Check again.")
+
+
+def auth_state(info: dict) -> tuple[bool, str | None]:
+    """(signed in, plan) from `claude auth status --json`. The plan is named only
+    for a claude.ai account, and only when Claude Code reports it: a Console
+    account, or an older Claude Code, gives None, which blocks nothing."""
+    plan = info.get("subscriptionType") if info.get("authMethod") == "claude.ai" else None
+    return bool(info.get("loggedIn")), (str(plan).lower() if plan else None)
+
+
 def _explain(result_text: str, cli: str | None = None) -> str:
     text = result_text or ""
     low = text.lower()
     said = f" (Claude Code said: {text.strip()})" if text.strip() else ""
     if "not logged in" in low:
         return ("Claude Code is not logged in. Run this once in a terminal; it opens your "
-                f"browser to sign in: {login_command(cli)}  The Claude desktop app's own "
-                "login does not carry over to it.")
+                f"browser to sign in: {login_command(cli)}  (with an Anthropic Console account: "
+                f"{login_command(cli)} --console). The Claude desktop app's own login does not "
+                "carry over to it.")
     limit = limit_reached()
     if limit or ("limit" in low and any(w in low for w in ("usage", "reached", "rate"))):
         return ((limit or "Your Claude plan's usage limit is reached.")
                 + " Once it resets, pick this run up again from Past runs in the Runs tab; "
                 "the header shows how much of the plan is used." + said)
+    # After the usage limit, whose messages can also say to upgrade.
+    if any(k in low for k in ("does not have access to claude code", "not included in your plan",
+                              "upgrade your plan", "free plan", "subscription required",
+                              "requires a subscription", "requires a paid")):
+        return FREE_PLAN + said
     if "credit balance" in low:
         return ("This Anthropic Console account has run out of credit. Add some at "
                 "console.anthropic.com, then pick this run up again from Past runs." + said)

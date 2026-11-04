@@ -30,7 +30,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     import uvicorn
     from fastapi import FastAPI, HTTPException
-    from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
+    from fastapi.responses import (FileResponse, JSONResponse, PlainTextResponse, Response,
+                                   StreamingResponse)
 except ImportError:
     raise SystemExit("The page's packages are not installed. Start it with uv run ui/server.py, "
                      "which installs them, or: pip install fastapi uvicorn claude-agent-sdk")
@@ -59,7 +60,9 @@ class OnlyThisPage:
         if scope["type"] == "http":
             idle.touch()
             headers = {k.decode("latin-1"): v.decode("latin-1") for k, v in scope["headers"]}
-            why = core.refusal(headers.get("host"), headers.get("origin"))
+            why = core.refusal(headers.get("host"), headers.get("origin"),
+                               headers.get("tailscale-user-login"),
+                               "x-forwarded-for" in headers)
             if why:
                 await PlainTextResponse(why, status_code=403)(scope, receive, send)
                 return
@@ -99,6 +102,25 @@ def style_css():
     return FileResponse(os.path.join(HERE, "style.css"), media_type="text/css", headers=FRESH)
 
 
+# The page as an app on a phone's home screen: its manifest, and the icon
+# (ui/icon.py) at the sizes iOS and Android ask for.
+ICONS = {"apple-touch-icon.png": 180, "icon-192.png": 192, "icon-512.png": 512}
+
+
+@app.get("/manifest.webmanifest")
+def manifest():
+    return JSONResponse(core.manifest(), media_type="application/manifest+json")
+
+
+@app.get("/{name}.png")
+def icon(name: str):
+    import icon as drawn
+    if f"{name}.png" not in ICONS:
+        raise HTTPException(404, "no such icon")
+    return Response(drawn.png(ICONS[f"{name}.png"]), media_type="image/png",
+                    headers={"Cache-Control": "max-age=86400"})
+
+
 # ---------------------------------------------------------------- digests
 
 @app.get("/api/health")
@@ -107,7 +129,8 @@ def health():
     so does ui/launch.sh. `started` tells the page a restarted server from the
     one it loaded from, and `restart` says whether it can restart itself."""
     return {"app": core.APP_NAME, "root": core.ROOT, "started": core.STARTED,
-            "restart": core.launcher() is not None}
+            "restart": core.launcher() is not None or core.by_launchd(),
+            "launchd": core.by_launchd(), "working": runs.working()}
 
 
 @app.post("/api/restart")
@@ -121,6 +144,24 @@ def restart():
     if SERVER is not None:   # after this answer has gone out
         threading.Timer(0.5, lambda: setattr(SERVER, "should_exit", True)).start()
     return {"restarting": True}
+
+
+@app.post("/api/quit")
+def quit_page():
+    """Stop the page, when no run is working: ui/phone.py asks, to hand the
+    page's port to launchd."""
+    if runs.working():
+        raise HTTPException(409, "A run is still working. Let it finish, then try again.")
+    if SERVER is not None:
+        threading.Timer(0.3, lambda: setattr(SERVER, "should_exit", True)).start()
+    return {"quitting": True}
+
+
+@app.get("/api/phone")
+def phone_status():
+    """Whether the page can be opened from a phone, and at what address."""
+    import phone
+    return phone.status()
 
 
 @app.get("/api/digests")
@@ -448,7 +489,13 @@ def main() -> None:
     ap.add_argument("--idle-exit", type=float, default=0, metavar="MINUTES",
                     help="stop once no page has asked for anything this long and no run "
                          "is going; an open page asks every minute (default: never)")
+    ap.add_argument("--launchd", action="store_true",
+                    help="serve on the socket launchd holds for the page (ui/phone.py sets that "
+                         "up; ui/launch.sh --launchd passes this)")
     args = ap.parse_args()
+    if args.launchd:
+        serve_for_launchd(args.idle_exit)
+        return
     url = f"http://127.0.0.1:{args.port}"
     held, root = core.probe_port(args.port)
     if held == "this":
@@ -470,15 +517,35 @@ def main() -> None:
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=args.port,
                                            log_level="warning"))
     PORT, SERVER = args.port, server
-    if args.idle_exit > 0:
-        def watch():
-            while not server.should_exit:
-                time.sleep(15)
-                if idle.should_exit(args.idle_exit, runs):
-                    print(f"No page open for {args.idle_exit:g} minutes; stopping.", flush=True)
-                    server.should_exit = True
-        threading.Thread(target=watch, name="idle-exit", daemon=True).start()
+    watch_idle(server, args.idle_exit)
     server.run()
+
+
+def watch_idle(server, minutes: float) -> None:
+    if minutes <= 0:
+        return
+
+    def watch():
+        while not server.should_exit:
+            time.sleep(15)
+            if idle.should_exit(minutes, runs):
+                print(f"No page open for {minutes:g} minutes; stopping.", flush=True)
+                server.should_exit = True
+    threading.Thread(target=watch, name="idle-exit", daemon=True).start()
+
+
+def serve_for_launchd(idle_minutes: float) -> None:
+    """Serve on the socket launchd listens on for the page: it started this
+    process at a request, and starts another at the next request after this one
+    stops."""
+    global PORT, SERVER
+    socks = core.launchd_sockets()
+    PORT = socks[0].getsockname()[1]
+    core.remember_start()
+    print(f"BS Job Search at http://127.0.0.1:{PORT}  (started by launchd)", flush=True)
+    SERVER = uvicorn.Server(uvicorn.Config(app, log_level="warning"))
+    watch_idle(SERVER, idle_minutes)
+    SERVER.run(sockets=socks)
 
 
 if __name__ == "__main__":

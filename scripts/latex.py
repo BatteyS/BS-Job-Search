@@ -22,12 +22,16 @@ import shutil
 import subprocess
 
 # The file each template needs, by the CTAN package that provides it: what
-# template.tex and letter.tex load, and what newtxtext.sty loads in turn
-# (fontaxes, xstring, and kastrup's binhex.tex), which BasicTeX and TinyTeX
-# both leave out.
+# template.tex and letter.tex load, and everything newtxtext.sty loads in turn
+# (its \RequirePackage lines: xpatch, xcolor, iftex, xkeyval, etoolbox, xstring,
+# scalefnt from carlisle, fontaxes, and kastrup's binhex.tex). TinyTeX-1 lacks
+# xpatch and carlisle, and BasicTeX newtx and fontaxes. The mweights it also asks
+# for is part of the LaTeX kernel, so it needs no file of its own.
 FILES = {
     "geometry.sty": "geometry", "newtxtext.sty": "newtx", "fontaxes.sty": "fontaxes",
-    "xstring.sty": "xstring", "binhex.tex": "kastrup", "enumitem.sty": "enumitem",
+    "xstring.sty": "xstring", "binhex.tex": "kastrup", "xpatch.sty": "xpatch",
+    "scalefnt.sty": "carlisle", "xcolor.sty": "xcolor", "xkeyval.sty": "xkeyval",
+    "etoolbox.sty": "etoolbox", "iftex.sty": "iftex", "enumitem.sty": "enumitem",
     "hyperref.sty": "hyperref", "titlesec.sty": "titlesec", "tgtermes.sty": "tex-gyre",
 }
 # What tlmgr installs to provide them. One already there is skipped.
