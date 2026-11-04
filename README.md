@@ -91,7 +91,7 @@ LaTeX typesets resumes and letters. Install a distribution that provides `pdflat
 
 | System | Install |
 |---|---|
-| macOS | [BasicTeX](https://tug.org/mactex/morepackages.html) (`brew install --cask basictex`), then open a new terminal and add the packages the templates use: `sudo tlmgr install enumitem titlesec newtx fontaxes xstring kastrup tex-gyre` |
+| macOS | [BasicTeX](https://tug.org/mactex/morepackages.html) (`brew install --cask basictex`), then open a new terminal and add the packages the templates use: `sudo tlmgr update --self && sudo tlmgr install enumitem titlesec newtx fontaxes xstring kastrup tex-gyre`. The first half updates tlmgr itself, which refuses to install anything while it is out of date. If it reports that cross-release updates are not supported, your BasicTeX is from an earlier year's TeX Live: reinstall it (`brew reinstall --cask basictex`) and run the line again. |
 | Windows | [MiKTeX](https://miktex.org/download). When its installer asks, let it install missing packages on the fly (MiKTeX Console's Settings change it later): the first resume build then fetches them without stopping to ask. |
 | Linux | `sudo apt install texlive-latex-recommended texlive-latex-extra texlive-fonts-extra`, or your distribution's equivalent |
 
@@ -199,7 +199,10 @@ read each digest and mark it (it writes the boxes back into the file), turn the 
 into a `feedback.md` section and append it once nothing is left to settle, record where
 each application stands, run `doctor.py` and the posting fetch with their output live,
 and read your profile files. Its Setup tab shows how far setup has got and everything
-`doctor.py` checks, and saves your API keys.
+`doctor.py` checks, and saves your API keys. It also keeps your copy current, and backed
+up once you have somewhere to back it up to: see
+[Updating from the template](#updating-from-the-template) and
+[Backing up, and a second machine](#backing-up-and-a-second-machine).
 
 The **Applications** tab opens on a table of every application: each role filed under
 `Applications/`, and each one `profile/applications.yaml` holds, even when its files are
@@ -325,10 +328,20 @@ Pushing needs you signed in to GitHub on this machine, for example with GitHub's
 template, run `git config pull.rebase true` there too (git config does not sync), and
 start the page the same way.
 
-From then on it is plain git, pushed manually. There is no daemon and no scheduled commit
-— the point of tracking `content/master.md` and `profile/profile.md` is a readable history
-of what changed and why, and automatic commits would bury that. Helper:
-`.\sync.ps1 start|done|status`.
+From then on, the page's Setup tab backs it up. It lists the files of yours that changed
+since the last backup, and **Back up now** commits them, with a message you type saying
+what changed, then pushes them. It commits only your own files, the ones in `profile/`,
+`content/`, `digests/` and `sources/`, never your contact details or keys, and it never
+pushes to a repository anyone can read: it checks first, and refuses one that is public.
+When your other machine has backed up something this one lacks, the page says so, and
+**Update**, or the next backup, brings it in first. If both machines changed the same
+lines of a file, it stops, undoes the merge, and names the file, and both versions are
+kept: this machine's here, the other's in the backup.
+
+Nothing commits or pushes on its own. There is no daemon and no scheduled commit — the
+point of tracking `content/master.md` and `profile/profile.md` is a readable history of
+what changed and why, and automatic commits would bury that. From a terminal, it is plain
+git:
 
 ```bash
 git pull        # before you start
@@ -354,27 +367,28 @@ reach your other machine even though the files do not.
 
 ## Updating from the template
 
-Improvements to the template reach your copy when you ask for them:
+Improvements to the template reach your copy when you ask for them. The page checks
+quietly when it opens, and every hour while it stays open; when the template has updates,
+a notice beside the tabs says how many, and the Setup tab shows what each one changed.
+**Update** brings them in. The template holds none of your files, so an update never
+touches your profile, resume facts, or digests. When one changes the page's own code or
+packages, the page says to start it again, which installs anything new.
 
-```bash
-git pull --rebase
-```
+An update never forces anything and never rebases. If it would write over a change of
+yours that is not committed, or a change of yours conflicts with one of the template's,
+it stops, changes nothing, and names the files.
 
-The template holds none of your files, so an update never touches your profile, resume
-facts, or digests, and the next start of the page installs any packages it added.
+What **Update** does depends on how your copy was made:
 
-Once your copy is in a private repository of your own (above), updates come from the
-`template` remote instead. Merge them rather than rebase, because your history is already
-pushed:
+| Your copy | Update | From a terminal |
+|---|---|---|
+| A clone of the template ([Get started](#get-started)) | Brings in the template's new commits | `git pull --rebase` |
+| Backed up to a private repository ([above](#backing-up-and-a-second-machine)) | Brings in what your other machine backed up, merges the template's updates, and pushes, so the backup has them too | `git pull --no-rebase template main`, then `git push` |
+| Made with GitHub's **Use this template** | Takes the template's new files one by one, keeping any file only you changed, and joins the two histories, so later updates are ordinary merges | below |
 
-```bash
-git pull --no-rebase template main
-git push
-```
-
-A copy made with GitHub's **Use this template** shares no history with the template, so
-it updates by checking out the template's files. Add the template as a remote once, then
-check them out whenever you want an update:
+A copy made with **Use this template** shares no history with the template. The page
+links it to the template with **Link to the template**. From a terminal, add the
+template as a remote once, then check its files out whenever you want an update:
 
 ```bash
 git remote add template https://github.com/BatteyS/BS-Job-Search.git
@@ -382,12 +396,12 @@ git fetch template
 git checkout template/main -- .claude .github scripts presets tests examples ui Resume/LaTeX \
     content/contact.example.md content/story.example.md sources/adzuna.example.yaml \
     sources/usajobs.example.yaml pyproject.toml uv.lock .python-version .gitattributes \
-    .gitignore CLAUDE.md README.md ARCHITECTURE.md LICENSE scan.ps1 sync.ps1 \
-    start.command start.cmd
+    .gitignore CLAUDE.md README.md ARCHITECTURE.md LICENSE start.command start.cmd
 ```
 
-That is every file the template ships, the list `scripts/export_template.py` exports. Read
-the diff, run the tests, and commit.
+That is every file the template ships, the list `scripts/export_template.py` exports. It
+overwrites any change of yours to those files, and keeps a file the template has dropped,
+which the page's **Update** does neither of. Read the diff, run the tests, and commit.
 
 ## Tests
 

@@ -21,7 +21,7 @@ async function api(path, opts = {}) {
   if (!r.ok) {
     let msg = r.statusText;
     try { msg = (await r.json()).detail || msg; } catch (_) { /* not json */ }
-    throw new Error(msg);
+    throw Object.assign(new Error(msg), { status: r.status });
   }
   const ct = r.headers.get("content-type") || "";
   return ct.includes("json") ? r.json() : r.text();
@@ -737,10 +737,12 @@ async function loadSetup() {
   const parts = { claude: checking(), files: checking(), problems: el("div"), scan: checking(), resume: checking() };
   const ready = el("div");
   const start = el("button", { class: "action primary", disabled: "", onclick: () => startSkill("setup", {}) }, "Set up");
+  const copy = el("section", { id: "copy", class: "copy" }, el("p", { class: "muted small" }, "Checking this copy…"));
   view.replaceChildren(
     el("div", { class: "toolbar" }, el("h2", {}, "Set up"), el("button", { class: "action small", onclick: () => loadSetup() }, "Check again")),
     DEMO ? el("p", { class: "banner" }, DEMO.setupNote) : "",
     ready,
+    copy,
     setupStep("1", "Claude Code", "The page runs your own Claude Code, with your own login, to do the interviewing, scoring and writing.", parts.claude),
     setupStep("2", "Your profile", "Set up interviews you and writes these files. Every write to your resume facts, stories or profile shows you the exact text first and waits for your approval.", el("div", {}, parts.files, parts.problems)),
     setupStep("3", "Before your first scan", "Two free job sources need a key. Each is saved to a gitignored file on this machine, never through Claude.", parts.scan),
@@ -755,6 +757,9 @@ async function loadSetup() {
           el("div", { class: "toolbar" }, el("button", { class: "action primary", onclick: () => startSkill("job-scan", {}) }, "Job scan"), el("button", { class: "action", onclick: () => showTab("digests") }, "Digests")))
       : "");
   };
+  if (DEMO) copy.replaceChildren(...copyView(null));
+  else if (copyState) showCopy(copyState);
+  loadCopy();
   api("/api/claude/status").catch(e => ({ available: false, reason: e.message }))
     .then(s => { claude = s; parts.claude.replaceChildren(...claudeView(s)); settle(); });
   const stated = setupState().then(s => { state = s; parts.files.replaceChildren(...(s ? filesView(s, start) : [el("p", { class: "muted" }, "Could not read how far setup has got.")])); settle(); });
@@ -870,6 +875,164 @@ function keyForm(k) {
       el("span", { class: "muted small" }, on + " · "), el("a", { href: k.signup, target: "_blank", rel: "noopener" }, "register free"),
       k.saved ? el("span", { class: "muted small" }, ` · in ${k.file}`) : null),
     el("div", { class: "key-form" }, ...inputs, save));
+}
+
+// -------------------------------------------------------------- the copy
+// Updates from the template, and backups to a repository of the user's own,
+// so nobody has to run git. The server fetches quietly when the page opens and
+// hourly after; Update and Back up run git there, and stop, changing nothing,
+// when something of the user's is in the way. ui/core.py says how.
+
+const copyNote = $("#copy-note");
+const COPY_STALE = 3600;   // seconds before the page asks the template again
+const RESTART_HOW = "This page is still running the code from before the update. To finish, start it again: close the window it runs in, then open start.command (start.cmd on Windows), or run uv run ui/server.py in this folder.";
+let copyState = null, copyLoading = null;
+
+// The page asks on load and from the Setup tab at once: they share one check.
+function loadCopy(check = false) {
+  if (!copyLoading || check) copyLoading = fetchCopy(check).finally(() => { copyLoading = null; });
+  return copyLoading;
+}
+
+async function fetchCopy(check) {
+  if (DEMO) return null;
+  let s;
+  try {
+    s = await api("/api/copy");
+    if (s.layout !== "none" && (check || !s.checked || Date.now() / 1000 - s.checked > COPY_STALE)) {
+      showCopy(s);
+      s = await api("/api/copy/check", { method: "POST" });
+    }
+  } catch (e) { return null; }
+  showCopy(s);
+  return s;
+}
+
+// The header's notice, and the Setup tab's box when the tab is open.
+function showCopy(s) {
+  copyState = s;
+  const t = s.template || {}, b = s.backup || {}, n = t.behind || 0;
+  const text = s.restart ? "Restart the page" : n ? (t.unit === "files" ? "Update ready" : `${n} update${n === 1 ? "" : "s"}`) : b.behind ? "Newer backup" : "";
+  copyNote.textContent = text;
+  copyNote.hidden = !text;
+  copyNote.className = "usage " + (s.restart ? "warn" : "news");
+  copyNote.title = s.restart ? RESTART_HOW : n ? "The template has updates: click for what changed, and the Update button." : "Another machine backed up changes this one does not have yet: click to bring them in.";
+  const box = $("#copy");
+  if (box) box.replaceChildren(...copyView(s));
+}
+copyNote.onclick = () => showTab("setup");
+
+function plural(n, word) { return `${n} ${word}${n === 1 ? "" : "s"}`; }
+function cap(s) { return s ? s[0].toUpperCase() + s.slice(1) : s; }
+
+function fileList(paths, max = 8) {
+  const shown = paths.length > max ? paths.slice(0, max - 1) : paths;
+  return el("ul", { class: "copy-files" }, ...shown.map(p => el("li", {}, p)), paths.length > shown.length ? el("li", { class: "muted" }, `and ${paths.length - shown.length} more`) : null);
+}
+
+function copyView(s) {
+  if (!s) return [el("p", { class: "muted small" }, "On your own copy, this says when the template has updates and brings them in, and backs your work up to a repository of your own.")];
+  const result = el("div", { class: "copy-result" });
+  const check = s.layout === "none" ? null : el("button", { class: "action small", onclick: () => copyAct(check, "/api/copy/check", "POST") }, "Check now");
+  const ago = s.checked ? Math.round((Date.now() / 1000 - s.checked) / 60) : null;
+  const parts = [el("div", { class: "copy-head" }, el("b", {}, "Your copy"), check,
+    el("div", { class: "muted small" }, s.about + (ago === null ? "" : ago < 1 ? " Checked just now." : ` Checked ${ago} min ago.`)))];
+  if (s.restart) parts.push(el("p", { class: "banner warn" }, el("b", {}, "Restart the page. "), RESTART_HOW));
+  if (s.error) parts.push(el("p", { class: "fix" }, s.error));
+  if (s.layout === "unlinked") {
+    const link = el("button", { class: "action", onclick: () => copyAct(link, "/api/copy/link", "POST") }, "Link to the template");
+    parts.push(el("div", { class: "copy-row" }, el("span", { class: "chip" }, "no updates"), " Link it to get the template's updates. ", link,
+      el("div", { class: "muted small" }, "For a copy made with GitHub's Use this template, or one whose link to the template was removed.")));
+  } else if (s.template) parts.push(updateRow(s));
+  if (s.backup) parts.push(backupRow(s));
+  const t = s.template || {}, b = s.backup || {};
+  // A name is needed to commit or merge: a backup does both, and an update merges once the copy has commits of its own.
+  if (!s.identity && s.branch && (b.remote || (t.behind && b.unpushed))) parts.push(identityForm());
+  parts.push(result);
+  return parts;
+}
+
+function updateRow(s) {
+  const t = s.template, b = s.backup || {};
+  if (t.behind === null) return el("div", { class: "copy-row" }, el("span", { class: "chip" }, "not checked"), " Not checked against the template yet.");
+  const n = t.behind, mine = b.behind || 0;
+  if (!n && !mine) return el("div", { class: "copy-row" }, el("span", { class: "chip ok" }, "up to date"), ` With the template${t.version ? ", " + t.version : ""}.`);
+  const what = [];
+  if (mine) what.push(`${plural(mine, "change")} backed up from another machine`);
+  if (n) what.push((t.unit === "files" ? `${plural(n, "file")} of the template's to bring in` : `${plural(n, "update")} from the template`) + (t.version ? `, up to ${t.version}` : ""));
+  const go = el("button", { class: "action primary", disabled: s.branch ? null : "", onclick: () => copyAct(go, "/api/copy/update", "POST") }, "Update");
+  const row = el("div", { class: "copy-row" }, el("span", { class: "chip warn" }, "update"), " " + cap(what.join(", and ")) + ". ", go);
+  const blocked = [...new Set([...(b.blocked || []), ...(t.blocked || [])])];
+  if (blocked.length) row.append(el("div", { class: "fix" }, "It will stop, changing nothing, until these are committed or undone: they have changes on this machine it would write over."), fileList(blocked));
+  if (t.conflicts && t.conflicts.length) row.append(el("div", { class: "fix" }, "It will stop, changing nothing, at these: they were changed in this copy, and the template has changed them since."), fileList(t.conflicts));
+  if (t.notes && t.notes.length) row.append(el("details", { class: "notes" }, el("summary", {}, "What's new"),
+    ...t.notes.map(x => el("div", { class: "note-entry" }, el("b", {}, x.subject), x.body ? el("div", { class: "md", html: markdown(x.body) }) : null))));
+  return row;
+}
+
+function backupRow(s) {
+  const b = s.backup, mine = b.changes.length, pushed = b.unpushed;
+  if (!b.remote) {
+    if (!mine && !pushed) return "";
+    return el("div", { class: "copy-row" }, el("span", { class: "chip" }, "this machine only"),
+      ` ${mine ? `${plural(mine, "file")} of yours ${mine === 1 ? "is" : "are"}` : "Your work is"} not backed up anywhere. `,
+      el("a", { href: s.help, target: "_blank", rel: "noopener" }, "How to back up, or use a second machine"));
+  }
+  const pending = [];
+  if (mine) pending.push(`${plural(mine, "file")} changed`);
+  if (pushed) pending.push(`${plural(pushed, "saved change")} not pushed yet`);
+  const row = el("div", { class: "copy-row" });
+  if (!pending.length) row.append(el("span", { class: "chip ok" }, "backed up"), ` To ${b.url}.`);
+  else {
+    row.append(el("span", { class: "chip warn" }, "not backed up"), ` ${cap(pending.join(", and "))} since the last backup, to ${b.url}.`);
+    if (mine) row.append(fileList(b.changes));
+    const msg = mine ? el("input", { type: "text", placeholder: "What changed, in a few words: it labels this backup", "aria-label": "What changed", maxlength: "2000" }) : null;
+    const go = el("button", { class: "action primary", disabled: s.branch ? null : "" }, "Back up now");
+    go.onclick = () => {
+      if (msg && !msg.value.trim()) { say("Say in a few words what changed", true); msg.focus(); return; }
+      copyAct(go, "/api/copy/backup", "POST", { message: msg ? msg.value.trim() : null });
+    };
+    if (msg) msg.onkeydown = ev => { if (ev.key === "Enter") go.click(); };
+    row.append(el("div", { class: "key-form" }, msg, go));
+  }
+  if (b.other.length) row.append(el("div", { class: "muted small" }, `Not part of a backup: your changes to the template's own files (${b.other.slice(0, 4).join(", ")}${b.other.length > 4 ? ", …" : ""}).`));
+  row.append(el("div", { class: "muted small" }, "Applications/ is not part of a backup either: keep a copy of that folder somewhere else."));
+  return row;
+}
+
+function identityForm() {
+  const name = el("input", { type: "text", placeholder: "Your name", "aria-label": "Your name", autocomplete: "name" });
+  const email = el("input", { type: "email", placeholder: "Your email", "aria-label": "Your email", autocomplete: "email" });
+  const save = el("button", { class: "action" }, "Save");
+  save.onclick = () => {
+    if (!name.value.trim() || !email.value.trim()) { say("Give a name and an email", true); return; }
+    copyAct(save, "/api/copy/identity", "PUT", { name: name.value.trim(), email: email.value.trim() });
+  };
+  return el("div", { class: "copy-row" }, el("span", { class: "chip warn" }, "name needed"),
+    " Git labels each update and backup in this copy's history with a name and an email, and has neither yet. Any address works; GitHub's no-reply one keeps yours out of the history.",
+    el("div", { class: "key-form" }, name, email, save));
+}
+
+// One of the box's buttons: run it, show the copy as it now stands, and say
+// what happened. A 409 is a stop: nothing was changed.
+async function copyAct(btn, path, method, body) {
+  for (const b of document.querySelectorAll("#copy button")) b.disabled = true;
+  btn.textContent = { "/api/copy/update": "Updating…", "/api/copy/backup": "Backing up…", "/api/copy/check": "Checking…", "/api/copy/link": "Linking…" }[path] || "Saving…";
+  let r, problem = null;
+  try { r = await api(path, { method, body: body ? JSON.stringify(body) : undefined }); }
+  catch (e) { problem = (e.status === 409 ? "Stopped, and nothing was changed. " : "") + e.message; }
+  if (problem) { showCopy(copyState); copyResult("bad", problem); return; }
+  showCopy(r.status || r);
+  if (r.message) copyResult(r.ok ? "ok" : "warn", r.message, r.reload);
+  if (r.changed && r.changed.length) { if (loaded.digests) loadDigests(); if (loaded.profile) loadProfile(); setupState(); }
+}
+
+function copyResult(kind, text, reload = false) {
+  const box = $("#copy .copy-result");
+  if (!box) { say(text, kind === "bad"); return; }
+  box.className = "copy-result " + kind;
+  box.replaceChildren(text, reload ? el("button", { class: "action small", onclick: () => location.reload() }, "Reload the page") : "");
+  if (reload) box.prepend(el("div", { class: "muted small" }, "The page's own files changed: reload it to see them."));
 }
 
 // --------------------------------------------------------------- profile
@@ -1032,6 +1195,8 @@ if (DEMO && DEMO.banner) document.body.prepend(el("div", { class: "demo-banner",
 // written and reviewed, then Digests.
 const TABS = ["setup", "digests", "applications", "runs", "profile"];
 loadUsage();
+loadCopy();
+setInterval(() => { if (!document.hidden) loadCopy(); }, 15 * 60 * 1000);
 setupState().then(s => {
   const asked = location.hash.slice(1);
   showTab(TABS.includes(asked) ? asked : s && !s.ready ? "setup" : "digests");

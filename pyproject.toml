@@ -49,6 +49,13 @@ test = ["pytest>=8"]
 
 [tool.uv]
 package = false
+# cryptography (pulled in by claude-agent-sdk through mcp and pyjwt) stopped
+# publishing Intel-Mac wheels at 49.0, and building it from source needs Rust,
+# OpenSSL and pkg-config. Intel Macs stay on 48, the last release with a wheel;
+# every other machine gets the current one.
+constraint-dependencies = [
+    "cryptography<49; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

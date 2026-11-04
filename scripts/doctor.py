@@ -35,8 +35,8 @@ LATEX_FILES = {"geometry.sty": "geometry", "newtxtext.sty": "newtx",
 FIX = {
     "latex": {
         "Darwin": "install BasicTeX (brew install --cask basictex, or the installer at "
-                  "tug.org/mactex), open a new terminal, then run: sudo tlmgr install "
-                  "enumitem titlesec newtx fontaxes xstring kastrup tex-gyre",
+                  "tug.org/mactex), open a new terminal, then run: sudo tlmgr update --self && "
+                  "sudo tlmgr install enumitem titlesec newtx fontaxes xstring kastrup tex-gyre",
         "Windows": "install MiKTeX from miktex.org/download, and set it to install missing "
                    "packages on the fly when its installer asks (or later, in MiKTeX Console's "
                    "Settings): the first resume build then fetches them without stopping to ask",
@@ -44,7 +44,8 @@ FIX = {
                  "texlive-fonts-extra (or your distribution's equivalent)",
     },
     "latex_packages": {
-        "Darwin": "sudo tlmgr install enumitem titlesec newtx fontaxes xstring kastrup tex-gyre",
+        "Darwin": "sudo tlmgr update --self && sudo tlmgr install enumitem titlesec newtx "
+                  "fontaxes xstring kastrup tex-gyre",
         "Windows": "MiKTeX installs them on the first build when it is set to install missing "
                    "packages on the fly (MiKTeX Console, Settings); or add them there by hand",
         "Linux": "sudo apt install texlive-latex-extra texlive-fonts-extra",

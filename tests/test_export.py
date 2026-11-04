@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import re
 
 import pytest
 
-from helpers import run
+from helpers import ROOT, run
 import export_template as x
 
 PRIVATE = ["profile/profile.md", "profile/filters.yaml", "profile/applications.yaml",
@@ -61,3 +62,18 @@ def test_only_the_license_may_name_its_holder(tmp_path):
 def test_this_copy_passes():
     code, out = run("export_template", "--check")
     assert code == 0, out
+
+
+def test_the_readme_checks_out_what_the_template_ships():
+    """README's update for a copy with no shared history lists the paths to take
+    from the template: every ENGINE pattern, and nothing else."""
+    with open(os.path.join(ROOT, "README.md"), encoding="utf-8") as fh:
+        readme = fh.read()
+    command = re.search(r"git checkout template/main -- (.*?)\n```", readme, re.S)
+    assert command, "README has no checkout command"
+    listed = command.group(1).replace("\\\n", " ").split()
+    bases = [p[:-2] if p.endswith("/*") else p for p in x.ENGINE]
+    for base in bases:
+        assert any(base == p or base.startswith(p + "/") for p in listed), base
+    for p in listed:
+        assert any(base == p or base.startswith(p + "/") for base in bases), p

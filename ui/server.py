@@ -1,6 +1,6 @@
 """A local page over this workflow: read and mark digests, find what was filed
 under Applications/ and track where each application stands, run the checks,
-and read your profile.
+read your profile, and keep this copy updated from the template and backed up.
 
     uv run ui/server.py                   # opens http://127.0.0.1:8765
     uv run ui/server.py --port 8800 --no-open
@@ -210,6 +210,51 @@ def save_keys(name: str, values: dict):
     return {"saved": _or_404(core.save_keys, name, values)}
 
 
+# --------------------------------------------------------------- the copy
+# Updates from the template, and backups to the user's own repository. What
+# each does, and when it stops, is in core.py. A stop changed nothing: 409.
+
+def _copy(fn, *args):
+    try:
+        return fn(*args)
+    except core.Stop as exc:
+        raise HTTPException(409, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.get("/api/copy")
+def copy_status():
+    """Where the copy stands as of the last check. Reads only."""
+    return core.copy_status()
+
+
+@app.post("/api/copy/check")
+def copy_check():
+    """Fetches the template, and the user's own repository, quietly."""
+    return core.check_copy()
+
+
+@app.post("/api/copy/update")
+def copy_update():
+    return _copy(core.update_copy, runs)
+
+
+@app.post("/api/copy/backup")
+def copy_backup(body: dict):
+    return _copy(core.back_up, body.get("message"), runs)
+
+
+@app.put("/api/copy/identity")
+def copy_identity(body: dict):
+    return _copy(core.save_identity, body.get("name"), body.get("email"))
+
+
+@app.post("/api/copy/link")
+def copy_link():
+    return _copy(core.link_template)
+
+
 # ------------------------------------------------------------------- runs
 
 @app.get("/api/commands")
@@ -385,6 +430,7 @@ def main() -> None:
     if held == "other":
         raise SystemExit(f"Port {args.port} is taken by another program. Start the page "
                          f"with --port {args.port + 1}, or another free port.")
+    core.remember_start()   # so the page can say when an update needs it restarted
     if not args.no_open:
         threading.Timer(0.8, webbrowser.open, [url]).start()
     print(f"BS Job Search at {url}  (this machine only; Ctrl-C stops it)")

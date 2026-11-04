@@ -176,6 +176,21 @@ The rule that those files are written only after the user sees the exact text is
 enforced by permissions, not by the prompt. `ui/core.py` holds the rest and has no web
 framework in it; neither needs the SDK installed, so the tests cover both without it.
 
+The Setup tab also keeps the copy current and backed up, so nobody has to run git.
+`core.copy_status()` tells the copy's layout from its remotes and history: a clone of the
+template; a copy pushed to a private repository of its own, with the template as a second
+remote; or one made with GitHub's Use this template, which shares no history with it. The
+page fetches the template quietly when it opens, and hourly while it stays open, and shows
+how many updates there are, with each export's notes. Update brings them in, as a
+fast-forward or a merge and never a rebase, then pushes to the user's own repository. A
+copy with no shared history takes the template's files one by one, as a merge would, and
+that first update joins the two histories. Back up commits the user's own files (profile,
+content, digests, sources) with their message, brings in what another machine backed up,
+and pushes, never to a repository anyone can read. Each of them stops, changing nothing,
+rather than write over uncommitted work or settle a conflict itself, and the page says
+when an update needs it restarted. git runs with no terminal to prompt in, so a missing
+sign-in is an error to report, not a prompt hidden in the page's own window.
+
 `ui/router.py` picks each run's model and effort from the skill, what the run is given
 (how much is marked in a digest), and how full the plan's usage windows are, and says
 why. Its rules are plain code, so routing uses none of the plan, and a run keeps its

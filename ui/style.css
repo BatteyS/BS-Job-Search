@@ -40,6 +40,7 @@ nav .count { display: inline-block; min-width: 18px; margin-left: 6px; padding: 
 .usage.warn { border-color: var(--warn); color: var(--warn); }
 .usage.bad { border-color: var(--bad); color: var(--bad); }
 .usage.checking { opacity: .6; }
+.usage.news { border-color: var(--accent); color: var(--accent); }
 
 main { flex: 1; min-height: 0; }
 .tab { display: none; height: 100%; }
@@ -200,6 +201,27 @@ ul.checks li { padding: 3px 0; }
 .ready { margin: 10px 0 0; padding: 12px 14px; border: 1px solid var(--ok); border-radius: 8px;
   background: var(--panel); }
 .ready .toolbar { margin: 8px 0 0; }
+
+.copy { margin: 14px 0 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel); }
+.copy-head { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.copy-head > div { flex-basis: 100%; }
+.copy-row { margin: 10px 0 0; }
+.copy-row .key-form { margin-top: 8px; }
+.copy-row .fix { margin: 6px 0 0; }
+ul.copy-files { margin: 4px 0 0; padding-left: 20px; font: 13px/1.5 var(--mono); }
+details.notes { margin: 8px 0 0; font-size: 14px; }
+details.notes summary { cursor: pointer; color: var(--accent); }
+.note-entry { margin: 8px 0 0 2px; padding-left: 10px; border-left: 2px solid var(--line); }
+.note-entry .md p { margin: 4px 0; }
+.copy-result { margin: 10px 0 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px;
+  font-size: 14px; }
+.copy-result:empty { display: none; }
+.copy-result.ok { border-color: var(--ok); }
+.copy-result.warn { border-color: var(--warn); }
+.copy-result.bad { border-color: var(--bad); color: var(--bad); }
+.copy-result button.action.small { margin: 6px 0 0; display: block; }
+.banner.warn { border: 1px solid var(--warn); margin: 8px 0 0; }
 
 /* Phones and narrow windows. The page scrolls as a whole, each tab's sidebar
    sits above its content, capped so the content starts on the first screen,

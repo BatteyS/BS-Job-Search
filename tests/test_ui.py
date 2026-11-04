@@ -519,3 +519,22 @@ def test_a_status_goes_through_its_route(repo):
     [row] = next(f for f in core.list_applications()["folders"]
                  if f["company"] == "Acme Energy")["roles"]
     assert (row["status"], row["note"]) == ("applied", "a recruiter wrote")
+
+
+def test_the_copys_routes_are_behind_the_same_check(tmp_path, monkeypatch):
+    """Update, Back up and the rest change the copy and reach GitHub, so another
+    site must not reach them either. Pointed at a folder that is no repository,
+    the page's own requests are answered with a stop, and nothing runs."""
+    pytest.importorskip("fastapi")
+    import server
+    monkeypatch.setattr(core, "ROOT", str(tmp_path))
+    here = {"host": "127.0.0.1:8765"}
+    page = {**here, "origin": "http://127.0.0.1:8765"}
+    assert _ask(server.app, "GET", "/api/copy", here) == 200
+    for method, path in [("POST", "/api/copy/check"), ("POST", "/api/copy/update"),
+                         ("POST", "/api/copy/backup"), ("POST", "/api/copy/link"),
+                         ("PUT", "/api/copy/identity")]:
+        assert _ask(server.app, method, path, {**here, "origin": "https://attacker.example"}) == 403
+        assert _ask(server.app, method, path, {"host": "rebind.attacker.example:8765"}) == 403
+    assert _ask(server.app, "POST", "/api/copy/update", page) == 409
+    assert _ask(server.app, "POST", "/api/copy/link", page) == 409
