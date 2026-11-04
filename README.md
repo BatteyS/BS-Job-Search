@@ -3,19 +3,19 @@
 A job scan that ranks postings against your own written profile, a resume builder that
 selects from one file of your facts, and a cover-letter writer and interview prep sheet
 that cite a source for every claim. All of it runs from
-[Claude Code](https://claude.com/claude-code), and you can drive it from a web page on
-your own machine. To see that page before
-installing anything, open the [example demos](https://batteys.github.io/BS-Job-Search/);
-for what a filled-in profile looks like, see [`examples/`](examples/README.md).
-
-For how the pieces work and why, read [`ARCHITECTURE.md`](ARCHITECTURE.md), and
-`CLAUDE.md` for the working agreements every skill follows.
+[Claude Code](https://claude.com/claude-code), driven from a web page on your own
+machine. To see that page before installing anything, open the
+[example demos](https://batteys.github.io/BS-Job-Search/).
 
 ## Get started
 
-The page is the main way to use this. Once it is running, it walks you through the rest:
-its **Setup** tab says what this machine still needs, and its **Set up** button interviews
-you and writes your profile, with a card to approve every write to your resume facts.
+You need a paid Claude plan (any of them, including one from your employer) or an
+Anthropic Console account, since the page runs your own Claude Code and the free plan
+does not include it. Installing takes about fifteen minutes. The setup interview that
+follows takes an hour or more, most of it on your resume, and you can stop and pick it up
+again at any point.
+
+Pick your system, then go on to [The Setup tab](#the-setup-tab).
 
 ### On a Mac
 
@@ -25,100 +25,215 @@ Open Terminal (in Applications, then Utilities), paste this line, and press Retu
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/BatteyS/BS-Job-Search/main/install.sh)"
 ```
 
-It installs only what is missing, all of it into your own home folder, and says what it
-is doing as it goes. It asks for no password itself; Apple's Command Line Tools come
-through a window of Apple's, which on some Macs asks for an administrator. When it
-finishes, **Job Search** is on your Desktop and the page is open in your browser, and the
-Terminal window can be closed. From then on, double-click Job Search whenever you want the
-page: it opens in your browser with no Terminal window, and stops by itself ten minutes
-after you close the page's last tab.
+It installs what is missing, all of it into your own home folder: Apple's Command Line
+Tools, uv, Claude Code and its sign-in, your copy of this template in `~/job-search`,
+LaTeX for the resumes, and **Job Search** on your Desktop. It says what it is doing as it
+goes, asks for no password itself (Apple's window for the Command Line Tools may), and
+asks whether you want Job Search on your phone too. When it finishes, the page is open in
+your browser, and the Terminal window can be closed.
 
-What it installs, in order:
+From then on, double-click **Job Search** on your Desktop whenever you want the page. It
+opens in your browser with no Terminal window, and stops by itself ten minutes after you
+close the page's last tab.
 
-1. Apple's Command Line Tools, which bring git. A window from Apple asks you to click
-   Install. They take 5 to 20 minutes to download, and the steps that do not need them go
-   on meanwhile.
-2. [uv](https://docs.astral.sh/uv/), which runs the Python this workflow is pinned to and
-   installs its packages, without touching any other Python on the Mac.
-3. Claude Code, then its sign-in, in your browser. The page runs your own Claude Code to
-   do the interviewing, scoring and writing, so it needs any paid Claude plan, including
-   one from your employer, or an Anthropic Console account: the free plan does not include
-   Claude Code. The installer asks which you have. Signed in to the Claude desktop app
-   already? Claude Code still signs in once, on its own.
-4. Your copy of this template, in `~/job-search`, and its Python packages.
-5. LaTeX, which typesets resumes and letters: [TinyTeX](https://yihui.org/tinytex/), about
-   64 MB, in `~/Library/TinyTeX`.
-6. Job Search, on your Desktop.
-7. If you want it, Job Search on your phone too: see [On your phone](#on-your-phone).
+If the installer stops, it says why, and running the same line again picks up where it
+stopped: see [If the Mac installer stops](#if-the-mac-installer-stops). It needs macOS 13
+(Ventura) or newer. Do not download this repository as a ZIP instead: macOS quarantines
+what a browser downloads and refuses to open `start.command` from it.
 
-It needs macOS 13 (Ventura) or newer, as Claude Code does, on Apple silicon or Intel. Run
-the same line again whenever you like: what is done is skipped, and Job Search is made
-again, which is how to bring it back. In a copy you moved, run `sh install.sh` in its
-folder instead, which points Job Search at it. If the installer stops, it says why and
-what to do; [If the Mac installer stops](#if-the-mac-installer-stops) has the usual
-causes. Then go on to [The Setup tab](#the-setup-tab).
+### On Windows
 
-Do not download this repository as a ZIP and open files from it: macOS quarantines what a
-browser downloads, and refuses to open `start.command` from it until you allow it in
-System Settings. The line above, like a `git clone`, makes nothing that is quarantined.
+1. Install [Git for Windows](https://git-scm.com/downloads/win).
+2. Install [uv](https://docs.astral.sh/uv/), which runs the Python this workflow is
+   pinned to without touching any other Python on the machine. In PowerShell:
 
-### On Windows or Linux
+   ```powershell
+   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+   ```
 
-**1. Install uv**, which runs the Python this workflow is pinned to and installs its
-packages, without touching any other Python on the machine:
+   Then open a new terminal, so it finds uv.
+3. Get a copy and start the page:
 
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
+   ```powershell
+   git clone https://github.com/BatteyS/BS-Job-Search.git job-search
+   cd job-search
+   uv run ui/server.py
+   ```
 
-On Windows, run `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
-instead. Either way, open a new terminal afterwards, so it finds uv.
+   The first start takes a minute or two while uv fetches Python and the packages; then
+   `http://127.0.0.1:8765` opens in your browser. The page runs on this machine only and
+   has no login, so leave it that way. Keep the terminal open while you use the page, and
+   stop it with Ctrl+C.
+4. Install Claude Code, if the Setup tab says it is missing, in PowerShell:
 
-**2. Get a copy and start the page:**
+   ```powershell
+   irm https://claude.ai/install.ps1 | iex
+   ```
 
-```bash
-git clone https://github.com/BatteyS/BS-Job-Search.git job-search
-cd job-search
-uv run ui/server.py
-```
+   Then sign in with `claude auth login` (`claude auth login --console` for a Console
+   account), which opens your browser, and press **Check again** on the Setup tab.
+5. Before your first resume, install [MiKTeX](https://miktex.org/download), which
+   typesets resumes and letters. When its installer asks, let it install missing packages
+   on the fly. This can wait until you need it.
 
-The first start takes a minute or two while uv fetches Python and the packages; then
-`http://127.0.0.1:8765` opens in your browser. The page runs on this machine only and
-has no login, so leave it that way. Keep the terminal open while you use it, and stop it
-with Ctrl+C. From then on, double-click `start.command` in the `job-search` folder
-(`start.cmd` on Windows) to open it, or run `uv run ui/server.py` there.
+From then on, double-click `start.cmd` in the `job-search` folder to open the page. Keep
+its window open while you use the page; closing it stops the page.
 
-On Windows, install [Git for Windows](https://git-scm.com/downloads/win) first.
+### On Linux
+
+1. Install git if it is missing (`sudo apt install git`, or your distribution's
+   equivalent), then [uv](https://docs.astral.sh/uv/), which runs the Python this
+   workflow is pinned to without touching any other Python on the machine:
+
+   ```bash
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+
+   Then open a new terminal, so it finds uv.
+2. Get a copy and start the page:
+
+   ```bash
+   git clone https://github.com/BatteyS/BS-Job-Search.git job-search
+   cd job-search
+   uv run ui/server.py
+   ```
+
+   The first start takes a minute or two while uv fetches Python and the packages; then
+   `http://127.0.0.1:8765` opens in your browser. The page runs on this machine only and
+   has no login, so leave it that way. Keep the terminal open while you use the page, and
+   stop it with Ctrl+C.
+3. Install Claude Code, if the Setup tab says it is missing:
+
+   ```bash
+   curl -fsSL https://claude.ai/install.sh | bash
+   ```
+
+   Then sign in with `claude auth login` (`claude auth login --console` for a Console
+   account), which opens your browser, and press **Check again** on the Setup tab.
+4. Before your first resume, install LaTeX, which typesets resumes and letters:
+
+   ```bash
+   sudo apt install texlive-latex-recommended texlive-latex-extra texlive-fonts-extra
+   ```
+
+   or your distribution's equivalent. This can wait until you need it.
+
+From then on, run `uv run ui/server.py` in the `job-search` folder to open the page, or
+double-click `start.command` there.
 
 ### The Setup tab
 
-The page opens on it until your profile is written.
+The page opens on it until your profile is written, and it says what this machine still
+needs.
 
-- **Claude Code** comes first. The page runs your own copy, with your own login, to do
-  the interviewing, scoring and writing; it needs any paid Claude plan or an Anthropic
-  Console account. If it is not installed, the tab shows the command to run for your
-  system; if it is not logged in, the sign-in command for each kind of account
-  (`claude auth login`, or `claude auth login --console` for a Console account); and if
-  the account is on the Free plan, which cannot run Claude Code, it says so. Run the
-  command in a terminal (a new one, if the page runs in one), then press **Check again**.
-- Then press **Set up**. It interviews you and writes six files, each described in
-  [`examples/README.md`](examples/README.md). Most of the time goes on your resume: it
-  asks, role by role, for the detail a resume leaves out, because every tailored resume
-  is selected from what you give it here.
-- Everything Claude would ask in a terminal appears as a card in the page, and each write
-  to `master.md`, `story.md` or `profile.md` shows the exact text and waits for your
-  approval. You can stop after any step; press **Set up** again and it picks up where you
-  left off.
-- The same tab saves the two API keys a scan needs, and says what to install before your
-  first resume: LaTeX, which typesets resumes and letters (see [LaTeX](#latex) below). On a
-  Mac without it, **Install LaTeX** installs it while you go, and nothing needs restarting.
+- **Claude Code** comes first. If it is not installed or not signed in, the tab shows the
+  one command to run for your system. Run it in a terminal (a new one, if the page runs
+  in one), then press **Check again**.
+- Press **Set up**. It interviews you and writes your profile: your contact details,
+  every resume fact you have, the stories a cover letter needs, how a scan should judge a
+  role for you, the kinds of role to look for, and where to look. Most of the time goes
+  on your resume, role by role, because every tailored resume is selected from what you
+  give it here.
+- Everything Claude would ask in a terminal appears as a card in the page, and every
+  write to your resume facts, stories or profile shows the exact text and waits for your
+  approval. Stop after any step; press **Set up** again and it picks up where you left
+  off.
+- The same tab saves the two free API keys a scan needs, with a link to register for
+  each, and says when LaTeX is still missing ([LaTeX](#latex) lists the installs). On a
+  Mac, **Install LaTeX** installs it while you go.
 
-Your copy stays on this machine: nothing in it is pushed anywhere unless you set that up.
-To back it up or use a second machine, see
+When it says you are set up, run **Job scan**, then mark the digest in the **Digests**
+tab: [Using it](#using-it) has the whole loop. Your copy stays on this machine, and
+nothing in it is sent anywhere unless you set that up: see
 [Backing up, and a second machine](#backing-up-and-a-second-machine).
 
-When setup finishes, go to [Using it](#using-it): **Job scan**, then mark the digest in
-the **Digests** tab.
+## Using it
+
+Each step is a button in the page's **Runs** tab, and a slash command in Claude Code in
+this folder:
+
+1. **Job scan** (`/job-scan`) asks which kinds of role to look for, then fetches postings,
+   filters them, scores what is left against your profile, and writes
+   `digests/YYYY-MM-DD.md`.
+2. **Mark the digest.** In the **Digests** tab, tick `apply`, or `skip` with a reason, on
+   each entry, and tick `cover letter` too on any apply that should get one. (In a file,
+   these are checkboxes in the `.md`.) The reasons go into `profile/feedback.md`, and
+   every later scan reads them. "skip — wants 8+ years"
+   teaches the scorer something; "skip" alone does not.
+3. **Tailor digest** (`/tailor-digest`) builds a tailored resume for every `apply`, and a
+   cover letter for every `cover letter`. **Tailor resume** (`/tailor-resume`) builds one
+   resume for a single posting. Each reads the posting in full, picks from your resume
+   facts, and files the PDF under `Applications/<Company>/`, which the **Applications**
+   tab shows with each PDF beside its posting.
+4. **Cover letter** (`/cover-letter`) writes a letter whose every claim cites your resume
+   facts, your stories, the posting, or something you said, and refuses any number none
+   of those holds. When a letter needs a story your files do not have, it asks you for it
+   first.
+5. **Interview prep** (`/interview-prep`), once you have an interview, writes a prep
+   sheet for one application: the questions its posting makes likely, each answered from
+   your files as situation, action, and result; the gaps it exposes, each with an honest
+   way to answer it; and questions to ask them. Every answer lists its sources, under the
+   cover letter's checks, and a question your files cannot answer stays on the sheet as
+   one to prepare. In the page, pick the application from the postings filed under
+   `Applications/`; the sheet is filed beside its resume as
+   `<Job Title> - interview prep.md`, and the Applications tab shows it.
+6. **Track what you send.** In the **Applications** tab, mark each application `applied`
+   when it goes out, then `heard back`, `interviewing`, `offer` and `accepted`, or
+   `rejected`, `withdrawn` or `no response`, as it moves. Each change is dated, today
+   unless you set it back, and saved to `profile/applications.yaml`, and every later scan
+   reads what came of each: roles
+   like the ones that got an answer score up, and a trait shared by several that got none
+   scores down.
+
+Nothing edits your profile or resume facts behind your back. Skills select from them;
+when a posting wants something you do not have, that is reported as a gap. The only
+additions come from interviews you take part in: setup, and a cover letter or interview
+prep sheet that asks for a story. Each shows you the exact text and writes only what you
+approve.
+
+## On your phone
+
+On a Mac, Job Search can be an icon on your phone's home screen too, opening the same
+page from anywhere, while the page and everything in it stay on your Mac. It takes the
+free [Tailscale](https://tailscale.com/download) app on the Mac and on the phone, signed
+in to the same account. Say yes when the Mac installer asks about your phone, or run this
+in Terminal:
+
+```bash
+cd ~/job-search && sh install.sh --phone
+```
+
+It says when to install or sign in to Tailscale, and may print a `login.tailscale.com`
+link to turn HTTPS on for your tailnet: open it (hold Command and double-click it) and
+click **Enable**. Then it prints your Mac's address,
+`https://<your-mac>.<your-tailnet>.ts.net`, which the Setup tab shows too. On the phone,
+sign in to the Tailscale app,
+open that address in Safari (Chrome on Android), and choose **Share**, then **Add to Home
+Screen**. The icon opens the page full screen, like an app, laid out for a phone.
+
+Two things to know:
+
+- **The Mac has to be awake.** A Mac sleeps on its own once its display turns off, even
+  plugged in, and a laptop also sleeps with its lid closed; then the phone cannot reach
+  it. Keep it plugged in and turn on **Prevent automatic sleeping on power adapter when
+  the display is off**, in System Settings, Battery, Options (on a desktop Mac, **Prevent
+  automatic sleeping when the display is off**). After a restart, someone has to log in on
+  the Mac first. Nothing here changes these settings for you.
+- **If the icon opens to an error**, the phone could not reach the Mac. Wake the Mac,
+  check that Tailscale is on, on the phone, then swipe Job Search away in the phone's app
+  switcher and open it again.
+
+[How phone access works](#how-phone-access-works) has the rest, including how to turn it
+off.
+
+## If something stops
+
+The Setup tab's **Check again** says what is missing and how to fix it. From a terminal,
+the same checks are:
+
+```bash
+uv run python scripts/doctor.py
+```
 
 ### If the Mac installer stops
 
@@ -147,10 +262,39 @@ Keep the copy out of a Documents or Desktop folder that iCloud Drive syncs: iClo
 its Python packages and git files to the cloud to save space, which breaks them.
 `~/job-search` is not synced.
 
-## Setup without the page
+## The details
 
-Everything the page does also runs from Claude Code in a terminal, and these are the
-details behind the steps above.
+Nothing below is needed to get going. It is the reference for how each piece works,
+what it costs, and how to run it from a terminal instead of the page. For how the pieces
+fit together and why, read [`ARCHITECTURE.md`](ARCHITECTURE.md); for the working
+agreements every skill follows, `CLAUDE.md`; for what a filled-in profile looks like,
+[`examples/`](examples/README.md).
+
+### What the Mac installer does
+
+In order:
+
+1. Apple's Command Line Tools, which bring git. A window from Apple asks you to click
+   Install. They take 5 to 20 minutes to download, and the steps that do not need them go
+   on meanwhile.
+2. [uv](https://docs.astral.sh/uv/), which runs the Python this workflow is pinned to and
+   installs its packages, without touching any other Python on the Mac.
+3. Claude Code, then its sign-in, in your browser. The installer asks which kind of
+   account you have. Signed in to the Claude desktop app already? Claude Code still signs
+   in once, on its own.
+4. Your copy of this template, in `~/job-search`, and its Python packages.
+5. LaTeX, which typesets resumes and letters: [TinyTeX](https://yihui.org/tinytex/), about
+   64 MB, in `~/Library/TinyTeX`.
+6. Job Search, on your Desktop.
+7. If you want it, Job Search on your phone too ([On your phone](#on-your-phone)).
+
+It runs on Apple silicon or Intel. Run the same line again whenever you like: what is
+done is skipped, and Job Search is made again, which is how to bring it back. In a copy
+you moved, run `sh install.sh` in its folder instead, which points Job Search at it.
+
+### Setup without the page
+
+Everything the page does also runs from Claude Code in a terminal.
 
 **Python.** `uv run` sets up Python and every package the first time, so there is
 nothing to install but uv: run every script as `uv run python scripts/<name>.py`. The one
@@ -161,7 +305,15 @@ there: `uv sync --extra scraped`.
 Without uv, any Python 3.10 or newer works: `python -m pip install pyyaml requests pypdf`,
 plus `fastapi uvicorn claude-agent-sdk` for the page.
 
-### LaTeX
+**Setup from the terminal.** Open this folder in Claude Code and run **`/setup`**. It does
+what the page's **Set up** button does, as a conversation in the terminal.
+
+**Check.** `uv run python scripts/doctor.py` prints each check as `ok`, `MISSING` with
+the fix for your system, `DRAFT` for a file `/setup` wrote that you have not finished
+reviewing, or `optional` for something only some features need. It reads files and runs
+local tools only, and changes nothing. The page's Setup tab shows the same checks.
+
+#### LaTeX
 
 LaTeX typesets resumes and letters. Install a distribution that provides `pdflatex`:
 
@@ -176,26 +328,10 @@ The builders and `doctor.py` find LaTeX wherever it is (on `PATH`, in TinyTeX, i
 templates use (`scripts/latex.py`). So a page or terminal started before LaTeX was
 installed finds it, and nothing needs restarting.
 
-### Check
+#### Your profile
 
-```bash
-uv run python scripts/doctor.py
-```
-
-Each line is `ok`, `MISSING` with the fix for your system, `DRAFT` for a file `/setup`
-wrote that you have not finished reviewing, or `optional` for something only some
-features need. It reads files and runs local tools only, and changes nothing. The page's
-Setup tab shows the same checks. Run it again whenever something stops working.
-
-### Setup from the terminal
-
-Open this folder in Claude Code and run **`/setup`**. It does what the page's **Set up**
-button does, as a conversation in the terminal.
-
-### Your profile
-
-Setup writes these six files. You can stop after any step, and you can write the files
-by hand instead, starting from an example.
+Setup writes these six files, each described in [`examples/README.md`](examples/README.md).
+You can write them by hand instead, starting from an example.
 
 | File | Holds |
 |---|---|
@@ -219,54 +355,12 @@ explicit message if it is missing rather than emitting a resume addressed from
 prints it on every build. Plain text is escaped for you, so write "R&D", "40%", "$1.2M"
 as you would anywhere. Its front matter can set `format: text|latex`, `max_pages`, and
 `section_order`, and any `# Section` (Certifications, Volunteer, ...) can appear on a
-resume — see `.claude/skills/tailor-resume/SKILL.md`.
+resume: see `.claude/skills/tailor-resume/SKILL.md`.
 
 `content/story.md` is yours to write: why your field, what you want next, career moves
 in your words, the stories behind your bullets. A letter can only say what that file,
 `master.md`, the posting, or you in chat said first, and `scripts/build_letter.py`
 refuses any number in a letter that none of its cited sources contains.
-
-## Using it
-
-Each step below is a button in the page's **Runs** tab and a slash command in Claude Code
-in a terminal, in this folder:
-
-1. **Job scan** (`/job-scan`) asks which kinds of role to look for, then fetches postings,
-   filters them, scores what is left against `profile/profile.md`, and writes
-   `digests/YYYY-MM-DD.md`.
-2. **Mark the digest.** In the **Digests** tab, tick `apply`, or `skip` with a reason, on
-   each entry, and tick `cover letter` too on any apply that should get one. (In a file,
-   these are checkboxes in the `.md`.) The reasons go into `profile/feedback.md`, and
-   every later scan reads them. "skip — wants 8+ years" teaches the scorer something;
-   "skip" alone does not.
-3. **Tailor digest** (`/tailor-digest`) builds a tailored resume for every `apply`, and a
-   cover letter for every `cover letter`. **Tailor resume** (`/tailor-resume`) builds one
-   resume for a single posting. Each reads the posting in full, picks from `master.md`,
-   and files the PDF under `Applications/<Company>/`, which the **Applications** tab shows
-   with each PDF beside its posting.
-4. **Cover letter** (`/cover-letter`) writes a letter whose every claim cites `master.md`,
-   `story.md`, the posting, or something you said, and refuses any number none of those
-   holds. When a letter needs a story your files do not have, it asks you for it first.
-5. **Interview prep** (`/interview-prep`), once you have an interview, writes a prep
-   sheet for one application: the questions its posting makes likely, each answered from
-   your files as situation, action, and result; the gaps it exposes, each with an honest
-   way to answer it; and questions to ask them. Every answer lists its sources, under the
-   cover letter's checks, and a question your files cannot answer stays on the sheet as
-   one to prepare. In the page, pick the application from the postings filed under
-   `Applications/`; the sheet is filed beside its resume as
-   `<Job Title> - interview prep.md`, and the Applications tab shows it.
-6. **Track what you send.** In the **Applications** tab, mark each application `applied`
-   when it goes out, then `heard back`, `interviewing`, `offer` and `accepted`, or
-   `rejected`, `withdrawn` or `no response`, as it moves. Each change is dated, today
-   unless you set it back, and saved to `profile/applications.yaml`. Every later scan
-   reads what came of each: roles like the ones that got an answer score up, and a trait
-   shared by several that got none scores down.
-
-Nothing edits your profile or resume facts behind your back. Skills select from them;
-when a posting wants something you do not have, that is reported as a gap. The only
-additions come from interviews you take part in: setup, and a cover letter or interview
-prep sheet that asks for a story. Each shows you the exact text and writes only what you
-approve.
 
 ### About the page
 
@@ -369,9 +463,9 @@ scrape them. Each is off until you turn it on under `sources` in `profile/filter
 and every scan prints a warning for each one it runs. Two things limit the risk and are
 not settings: nothing logs in, so no account of yours is involved, and each board runs at
 a fixed, polite pace, stopping for the rest of the run if the board starts refusing
-requests or two queries in a row fail. LinkedIn is the touchiest: it fetches each posting's page and is capped at 40
-queries a run. There is no proxy support, on purpose. Google Jobs is not offered: JobSpy
-lists it as currently unavailable.
+requests or two queries in a row fail. LinkedIn is the touchiest: it fetches each
+posting's page and is capped at 40 queries a run. There is no proxy support, on purpose.
+Google Jobs is not offered: JobSpy lists it as currently unavailable.
 
 All four go through [JobSpy](https://github.com/speedyapply/JobSpy). With uv, install it
 with `uv sync --extra scraped`. `uv.lock` pins
@@ -398,40 +492,26 @@ python scripts/jobspy_source.py --clusters <cluster> --metros <metro> --sites in
 `--sites` takes any of `indeed,linkedin,glassdoor,ziprecruiter`, which is also the way to
 try one board before turning it on for every scan.
 
-## On your phone
+### How phone access works
 
-Job Search can be an icon on your phone's home screen too, opening the same page from
-anywhere, while the page and everything in it stay on your Mac. It takes the free
-Tailscale app on the Mac and on the phone, signed in to the same account, and a Mac with
-Job Search on its Desktop. On the Mac, install Tailscale from the Mac App Store, or from
+Phone access is set up on a Mac for now. The copy has to be in a folder of its own, such
+as `~/job-search`, where the installer puts it: macOS does not let anything started in
+the background open Documents, Desktop, Downloads, or iCloud Drive, so phone access
+refuses a copy there and says how to move it. A copy kept somewhere else: `cd` to that
+folder before `sh install.sh --phone`.
+
+The `login.tailscale.com` link that turns HTTPS on for your tailnet can only be used by
+the tailnet's owner or an admin of it, so on a tailnet someone else runs, such as an
+employer's, ask them. On the Mac, Tailscale comes from the Mac App Store, or from
 [tailscale.com/download](https://tailscale.com/download) if you are an administrator of
-the Mac, since that installer asks for one; its command-line tool is not needed. Then
-say yes when the Mac installer asks about your phone, or run this in Terminal:
-
-```bash
-cd ~/job-search && sh install.sh --phone
-```
-
-A copy kept somewhere else: `cd` to that folder instead. The copy has to be in a folder
-of its own, such as `~/job-search`, where the installer puts it: macOS does not let
-anything started in the background open Documents, Desktop, Downloads, or iCloud Drive,
-so phone access refuses a copy there and says how to move it.
-
-It says when to install or sign in to Tailscale. The first time, Tailscale may print a
-`login.tailscale.com` link to turn HTTPS on for your tailnet: open it (hold Command and
-double-click it) and click **Enable**. Only the tailnet's owner or an admin of it can, so
-on a tailnet someone else runs, such as an employer's, ask them. Then it prints your
-Mac's address, `https://<your-mac>.<your-tailnet>.ts.net`, which the Setup tab shows too.
-On the phone, sign in to the Tailscale app, open that address in Safari (Chrome on
-Android), and choose **Share**, then **Add to Home Screen**. The icon opens the page full
-screen, like an app.
+the Mac, since that installer asks for one; its command-line tool is not needed.
 
 The Setup tab, and the installer each time it runs, check that phone access still works,
 and say why when it does not: Tailscale off on the Mac, the Mac renamed, a setup that did
 not finish, or Job Search switched off in System Settings, General, Login Items &
-Extensions. Each comes with what to do, usually the command above.
+Extensions. Each comes with what to do, usually the `--phone` command.
 
-How it works, and why it is safe to leave on:
+Why it is safe to leave on:
 
 - **The page starts when it is asked for.** macOS's launchd holds the page's port and
   starts the page at the first request, from the phone or from Job Search on the
@@ -442,17 +522,8 @@ How it works, and why it is safe to leave on:
   request to the page, which still listens on the Mac alone. Tailscale says which
   account is asking, and the page answers only the one set up on this Mac
   (`data/ui-remote.json`, which never leaves it).
-- **The Mac has to be awake.** A Mac sleeps on its own once its display turns off, even
-  plugged in, and a laptop also sleeps with its lid closed; then the phone cannot reach
-  it. To keep it reachable, keep it plugged in and turn on **Prevent automatic sleeping on
-  power adapter when the display is off**, in System Settings, Battery, Options. On a
-  desktop Mac the switch is **Prevent automatic sleeping when the display is off**:
-  search System Settings for it. After a restart, someone has to log in on the Mac before
-  the phone can reach it. Nothing here changes these settings for you.
-- **If the icon opens to an error**, the phone could not reach the Mac when it opened.
-  Wake the Mac and check that Tailscale is on, on the phone, then swipe Job Search away in
-  the phone's app switcher and open it again. Once the page is open, it says when it
-  cannot reach the Mac, and picks up by itself when it can.
+- **Once the page is open on the phone**, it says when it cannot reach the Mac, and picks
+  up by itself when it can.
 - **On a Mac shared by several accounts**, phone access lets the others open your page
   too, at `127.0.0.1:8765`, whenever they like, since it starts when asked for. Turn it
   off if that matters.
@@ -466,7 +537,7 @@ cd ~/job-search && uv run python ui/phone.py disable
 
 It will not while a run is working in the page, since turning it off stops the page.
 
-## Backing up, and a second machine
+### Backing up, and a second machine
 
 Your copy is a clone of the public template, so nothing in it leaves this machine until
 you push it somewhere. To back it up, or to work on a second machine, push it to a
@@ -498,7 +569,7 @@ When your other machine has backed up something this one lacks, the page says so
 lines of a file, it stops, undoes the merge, and names the file, and both versions are
 kept: this machine's here, the other's in the backup.
 
-Nothing commits or pushes on its own. There is no daemon and no scheduled commit — the
+Nothing commits or pushes on its own. There is no daemon and no scheduled commit: the
 point of tracking `content/master.md` and `profile/profile.md` is a readable history of
 what changed and why, and automatic commits would bury that. From a terminal, it is plain
 git:
@@ -525,7 +596,7 @@ files matter to you, back it up another way. Where each application stands is ke
 apart, in `profile/applications.yaml`, which is tracked, so the statuses and their dates
 reach your other machine even though the files do not.
 
-## Updating from the template
+### Updating from the template
 
 Improvements to the template reach your copy when you ask for them. The page checks
 quietly when it opens, and every hour while it stays open; when the template has updates,
@@ -563,7 +634,7 @@ That is every file the template ships, the list `scripts/export_template.py` exp
 overwrites any change of yours to those files, and keeps a file the template has dropped,
 which the page's **Update** does neither of. Read the diff, run the tests, and commit.
 
-## Tests
+### Tests
 
 ```bash
 uv run --group test pytest
