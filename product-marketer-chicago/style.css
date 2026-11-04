@@ -110,7 +110,7 @@ pre.out { max-height: 60vh; overflow: auto; }
 .pick select { font: inherit; padding: 1px 4px; border: 1px solid var(--line); border-radius: 6px;
   background: var(--bg); color: var(--fg); }
 .side .item small.route { color: var(--accent); }
-.skill-form textarea, textarea.reply {
+.skill-form textarea, .skill-form select, textarea.reply {
   width: 100%; font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px;
   background: var(--bg); color: var(--fg); resize: vertical;
 }
@@ -144,6 +144,23 @@ pre.old { border-color: var(--bad); } pre.new { border-color: var(--ok); }
 
 iframe.pdf { width: 100%; height: 80vh; border: 1px solid var(--line); border-radius: 8px;
   background: #fff; }
+.tracker { margin: 6px 0 18px; border-top: 1px solid var(--line); }
+.app-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 14px;
+  align-items: center; padding: 10px 2px; border-bottom: 1px solid var(--line); }
+.app-row .role { font-weight: 600; }
+.app-row .role.muted { font-weight: normal; }
+.app-row .chips { margin-left: 8px; }
+.app-row .set { display: flex; gap: 6px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+.app-row select, .app-row input { font: inherit; font-size: 14px; padding: 3px 6px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+.app-row input[type=date] { color-scheme: light dark; }
+.app-row input.note { grid-column: 1 / -1; width: 100%; }
+.app-row .history { grid-column: 1 / -1; font-size: 12px; color: var(--muted); }
+.app-row .set button.action.small { margin-left: 0; }
+.app-row.answered select { border-color: var(--ok); }
+.app-row.ended .who { opacity: .75; }
+.banner.bad { color: var(--bad); }
+@media (max-width: 700px) { .app-row { grid-template-columns: 1fr; } .app-row .set { justify-content: flex-start; } }
 .files { list-style: none; padding: 0; margin: 0 0 16px; }
 .files li { padding: 4px 0; display: flex; gap: 10px; align-items: baseline; }
 .files li small { color: var(--muted); }
@@ -183,3 +200,25 @@ ul.checks li { padding: 3px 0; }
 .ready { margin: 10px 0 0; padding: 12px 14px; border: 1px solid var(--ok); border-radius: 8px;
   background: var(--panel); }
 .ready .toolbar { margin: 8px 0 0; }
+
+/* Phones and narrow windows. The page scrolls as a whole, each tab's sidebar
+   sits above its content, capped so the content starts on the first screen,
+   and the tabs get a row of their own. Wider than this, nothing changes. */
+@media (max-width: 700px) {
+  html, body { height: auto; }
+  header { flex-wrap: wrap; gap: 4px 12px; padding: 8px 12px; }
+  header h1 { flex: 1; }
+  .status { order: 1; flex-basis: 100%; margin-left: 0; }
+  .status:empty { display: none; }
+  nav { order: 2; flex-basis: 100%; display: flex; overflow-x: auto; margin: 0 -6px; }
+  nav button { flex: none; padding: 6px 8px; }
+  .tab { height: auto; }
+  .tab.active { flex-direction: column; }
+  .side { width: auto; max-height: 45vh; max-height: 45svh; border-right: none;
+    border-bottom: 1px solid var(--line); }
+  .content { overflow: visible; max-width: none; padding: 16px 14px; }
+  .run.claude .head { top: 0; }
+  .demo-banner { padding: 8px 12px; }
+  .marks input[type=text] { min-width: 0; flex-basis: 100%; }
+  .md table { display: block; overflow-x: auto; }
+}

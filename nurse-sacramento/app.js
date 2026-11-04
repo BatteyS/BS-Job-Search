@@ -135,7 +135,8 @@ function entryCard(date, e) {
   ));
 
   const chips = el("div", {});
-  if (e.already_built) chips.append(el("span", { class: "chip ok" }, "resume filed"));
+  if (e.status) chips.append(el("span", { class: "chip" + (ANSWERED.has(e.status) ? " ok" : ""), title: "Where the application stands, in the Applications tab" }, `${e.status} · ${e.status_since}`));
+  else if (e.already_built) chips.append(el("span", { class: "chip ok" }, "resume filed"));
   if (e.letter_built) chips.append(el("span", { class: "chip ok" }, "letter filed"));
   if (e.suggested_variant) chips.append(el("span", { class: "chip" }, "resume: " + e.suggested_variant));
   if (e.folder_note) chips.append(el("span", { class: "chip warn" }, e.folder_note));
@@ -164,36 +165,158 @@ async function showVerdicts(date, out) {
 }
 
 // ---------------------------------------------------------- applications
+// What was filed under Applications/, and where each application stands. A
+// status, its date and a note are saved to profile/applications.yaml, which git
+// tracks, so another machine shows them though Applications/ stays on the one
+// that filed it; the next scan reads what came of each. The table of every
+// application and each employer's page are built from the same rows.
+
+let apps = null;          // what /api/applications answers
+let appOpen = "all";      // the table of every application, or one folder's name
+
+// The statuses that mean a person answered with interest.
+const ANSWERED = new Set(["heard back", "interviewing", "offer", "accepted"]);
 
 async function loadApplications() {
-  const list = $("#app-list");
-  list.replaceChildren();
-  let apps;
   try { apps = await api("/api/applications"); } catch (e) { say(e.message, true); return; }
-  const employers = apps.filter(a => a.employer), other = apps.filter(a => !a.employer);
-  if (!apps.length) list.append(el("p", { class: "muted" }, "Nothing filed under Applications/ yet."));
-  for (const a of employers) list.append(el("button", { class: "item", onclick: ev => openApplication(a, ev.currentTarget) }, a.company, el("small", {}, `${a.files.length} files`)));
-  if (other.length) {
-    list.append(el("h3", {}, "Not employers"));
-    for (const a of other) list.append(el("button", { class: "item", onclick: ev => openApplication(a, ev.currentTarget) }, a.company.replace(/^_[^/]*\//, ""), el("small", {}, `${a.files.length} files`)));
-  }
+  if (appOpen !== "all" && apps.folders.some(f => f.company === appOpen)) openApplication(appOpen);
+  else openTracker();
 }
 
-function openApplication(a, btn) {
-  for (const b of document.querySelectorAll("#app-list .item")) b.classList.toggle("active", b === btn);
-  const view = $("#app-view");
+function appRows() { return apps.folders.filter(f => f.employer).flatMap(f => f.roles); }
+
+// "3 applied · 1 heard back · 4 no status", in the statuses' own order.
+function appCounts(rows) {
+  const n = {};
+  for (const r of rows) { const k = r.status || "no status"; n[k] = (n[k] || 0) + 1; }
+  return [...apps.statuses, "no status"].filter(k => n[k]).map(k => `${n[k]} ${k}`).join(" · ") || "nothing yet";
+}
+
+function folderLine(f) {
+  const files = f.on_disk ? `${f.files.length} file${f.files.length === 1 ? "" : "s"}` : "files not on this machine";
+  if (!f.employer) return files;
+  const st = apps.statuses.filter(s => f.roles.some(r => r.status === s));
+  return [st.length ? st.join(" · ") : "no status", files].join(" · ");
+}
+
+function renderAppList() {
+  const list = $("#app-list");
+  const item = (f, label) => el("button", { class: "item", "data-app": f.company, onclick: () => openApplication(f.company) }, label || f.company, el("small", {}, folderLine(f)));
+  const here = apps.folders.filter(f => f.employer && f.on_disk), away = apps.folders.filter(f => f.employer && !f.on_disk), other = apps.folders.filter(f => !f.employer);
+  list.replaceChildren(el("button", { class: "item", "data-app": "all", onclick: () => openTracker() }, "All applications", el("small", {}, appCounts(appRows()))));
+  if (!apps.folders.length) list.append(el("p", { class: "muted" }, "Nothing filed under Applications/ yet."));
+  for (const f of here) list.append(item(f));
+  if (away.length) { list.append(el("h3", {}, "Not on this machine")); for (const f of away) list.append(item(f)); }
+  if (other.length) { list.append(el("h3", {}, "Not employers")); for (const f of other) list.append(item(f, f.company.replace(/^_[^/]*\//, ""))); }
+  for (const b of list.querySelectorAll(".item")) b.classList.toggle("active", b.dataset.app === appOpen);
+}
+
+function appProblems() {
+  return [apps.problem, ...(apps.problems || [])].filter(Boolean).map(p => el("p", { class: "banner bad" }, p));
+}
+
+function openTracker() {
+  appOpen = "all";
+  renderAppList();
+  // The latest change first, then what has no status yet. A change does not
+  // re-sort the table, so a row stays where it was while it is being edited.
+  const rows = appRows().slice().sort((a, b) => (b.since || "").localeCompare(a.since || "")
+    || a.company.localeCompare(b.company) || a.role.localeCompare(b.role));
+  $("#app-view").replaceChildren(
+    el("h2", {}, "Applications"),
+    el("p", { class: "muted small" }, `Where each one stands. Pick a status as it changes: it is dated today unless you set the date back. Everything is saved to ${apps.file}, which git tracks, so it reaches your other machine, and the next scan reads what came of each.`),
+    ...appProblems(),
+    el("p", { id: "app-counts", class: "small" }, appCounts(rows)),
+    rows.length ? el("div", { class: "tracker" }, ...rows.map(r => statusRow(r, true)))
+      : el("p", { class: "muted" }, "Nothing yet. A tailored resume shows up here: mark it applied once you send it."));
+}
+
+function openApplication(company) {
+  const f = apps.folders.find(x => x.company === company);
+  if (!f) { openTracker(); return; }
+  appOpen = company;
+  renderAppList();
   const viewer = el("div");
   const files = el("ul", { class: "files" });
-  for (const f of a.files) {
-    const url = fileUrl(a.company, f.name);
-    const link = f.viewable
-      ? el("a", { href: "#", onclick: ev => { ev.preventDefault(); showFile(viewer, url, f.name); } }, f.name)
-      : el("span", { class: "muted" }, f.name);
-    files.append(el("li", {}, link, el("small", {}, `${f.modified} · ${fmtSize(f.size)}`)));
+  for (const file of f.files) {
+    const url = fileUrl(f.company, file.name);
+    const link = file.viewable
+      ? el("a", { href: "#", onclick: ev => { ev.preventDefault(); showFile(viewer, url, file.name); } }, file.name)
+      : el("span", { class: "muted" }, file.name);
+    files.append(el("li", {}, link, el("small", {}, `${file.modified} · ${fmtSize(file.size)}`)));
   }
-  view.replaceChildren(el("h2", {}, a.company), files, viewer);
-  const first = a.files.find(f => f.viewable && f.name.endsWith(".pdf")) || a.files.find(f => f.viewable);
-  if (first) showFile(viewer, fileUrl(a.company, first.name), first.name);
+  $("#app-view").replaceChildren(el("h2", {}, f.company),
+    ...(f.employer ? [...appProblems(), el("div", { class: "tracker" }, ...f.roles.map(r => statusRow(r, false)))] : []),
+    f.on_disk ? files : el("p", { class: "muted" }, `Its files are not on this machine: Applications/ stays on the machine that filed it, and ${apps.file} goes everywhere.`),
+    viewer);
+  const first = f.files.find(x => x.viewable && x.name.endsWith(".pdf")) || f.files.find(x => x.viewable);
+  if (first) showFile(viewer, fileUrl(f.company, first.name), first.name);
+}
+
+// One application: its status, the date it got there, Undo for the last
+// change, and a note. Each change is saved as it is made, the way a digest's
+// boxes are, and the row redraws from what the server answers.
+function statusRow(r, withCompany) {
+  const row = el("div", { class: "app-row" });
+
+  async function save(change) {
+    try {
+      apps = await api("/api/applications/status", { method: "PUT", body: JSON.stringify({ company: r.company, role: r.role, ...change }) });
+      const next = appRows().find(x => x.company === r.company && x.role === r.role);
+      if (next) { r = next; draw(); } else row.remove();
+      if (appOpen !== "all" && !apps.folders.some(f => f.company === appOpen)) { openTracker(); return; }
+      renderAppList();
+      const counts = $("#app-counts");
+      if (counts) counts.textContent = appCounts(appRows());
+      say(DEMO ? "Changed on this page only: the demo saves nothing." : `Saved to ${apps.file}`);
+    } catch (e) {
+      say(e.message, true);
+      if (!("note" in change)) draw();   // a refused note stays as typed, to fix
+    }
+  }
+
+  function draw() {
+    const locked = !!(r.problem || apps.problem);
+    const who = el("div", { class: "who" },
+      withCompany ? el("a", { href: "#", onclick: ev => { ev.preventDefault(); openApplication(r.company); } }, r.company) : null,
+      withCompany ? " — " : null,
+      el("span", { class: r.role ? "role" : "role muted" }, r.role || "the employer as a whole"));
+    const chips = el("span", { class: "chips" });
+    if (r.digest) chips.append(el("span", { class: "chip", title: `Entry #${r.digest.n} in the ${r.digest.date} digest` }, `scored ${r.digest.score ?? "?"} · ${r.digest.date}`));
+    if (r.waiting) chips.append(el("span", { class: "chip warn", title: "Mark it no response once you stop expecting an answer" }, `no word in ${r.waiting} days`));
+    if (r.role && !r.filed) chips.append(el("span", { class: "chip" }, "files not on this machine"));
+    if (r.problem) chips.append(el("span", { class: "chip bad", title: r.problem }, `fix by hand in ${apps.file}`));
+    if (chips.childElementCount) who.append(chips);
+
+    // Only the moves the tracker takes: a step further, or an ending. Undo
+    // fixes a mistake without losing the dates in between.
+    const select = el("select", { "aria-label": "Status", disabled: locked || null });
+    if (!r.status) select.append(el("option", { value: "" }, "no status"));
+    const offered = new Set([r.status, ...(r.moves || [])]);
+    for (const s of apps.statuses) if (offered.has(s)) select.append(el("option", { value: s }, s));
+    select.value = r.status || "";
+    select.title = r.status ? apps.meaning[r.status] : "Pick one once you send it";
+    select.onchange = () => { if (select.value) save({ status: select.value }); };
+
+    const before = r.history.length > 1 ? r.history[r.history.length - 2].date : null;
+    const date = el("input", { type: "date", "aria-label": "When it got there", title: "When it got there", value: r.since || "", max: apps.today, min: before, disabled: (locked || !r.status) || null });
+    date.onchange = () => { if (date.value && date.value !== r.since) save({ date: date.value }); };
+
+    const last = r.history[r.history.length - 1];
+    const undo = last ? el("button", { class: "action small", disabled: locked || null, title: `Remove the last change: ${last.status}, ${last.date}`, onclick: () => save({ undo: true }) }, "Undo") : null;
+
+    const note = el("input", { type: "text", class: "note", "aria-label": "Note", maxlength: "500", disabled: locked || null, value: r.note || "", placeholder: "note: what they said, or why it ended (it teaches the scan)" });
+    note.onblur = () => { if (note.value.trim() !== (r.note || "")) save({ note: note.value }); };
+    note.onkeydown = ev => { if (ev.key === "Enter") note.blur(); };
+
+    const history = r.history.length ? el("div", { class: "history" }, r.history.map(h => `${h.status} ${h.date}`).join(" → ")) : null;
+    row.classList.toggle("ended", !!r.ended);
+    row.classList.toggle("answered", ANSWERED.has(r.status));
+    row.replaceChildren(...[who, el("div", { class: "set" }, select, date, undo), note, history].filter(Boolean));
+  }
+
+  draw();
+  return row;
 }
 
 // A filed document: from the server, or in a demo from the copies beside the page.
@@ -250,6 +373,7 @@ function skillButton(s) {
   const btn = el("button", { class: "item skill", "data-skill": s.name }, s.label, el("small", {}, s.about + (s.needs === "date" ? " (the digest open in Digests)" : "")), routeLine(s.route));
   btn.route = s.route;
   btn.onclick = () => {
+    if (s.needs === "application") { pickApplication(s, btn); return; }
     if (s.needs !== "text") { startSkill(s.name, s.needs === "date" ? { date: currentDigest } : {}); return; }
     const box = el("textarea", { placeholder: "Paste the posting's URL, or the posting itself", rows: 4 });
     const go = el("button", { class: "action primary", onclick: () => { if (box.value.trim()) { startSkill(s.name, { text: box.value.trim() }); form.remove(); } } }, "Start");
@@ -258,6 +382,24 @@ function skillButton(s) {
     box.focus();
   };
   return btn;
+}
+
+// A skill for one application (Interview prep) picks from the postings filed
+// under Applications/, newest first: every resume the skills build saves one.
+const POSTING = " - posting.txt";
+async function pickApplication(s, btn) {
+  if (btn.nextElementSibling && btn.nextElementSibling.classList.contains("skill-form")) return;
+  let apps = [];
+  try { apps = (await api("/api/applications")).folders; } catch (e) { say(e.message, true); return; }
+  const filed = apps.filter(a => a.employer).flatMap(a => a.files.filter(f => f.name.endsWith(POSTING))
+    .map(f => ({ company: a.company, title: f.name.slice(0, -POSTING.length), modified: f.modified })))
+    .sort((a, b) => b.modified.localeCompare(a.modified) || a.company.localeCompare(b.company));
+  if (!filed.length) { say("No posting is filed under Applications/ yet. Tailoring a resume files one.", true); return; }
+  const pick = el("select", { "aria-label": "Application" }, ...filed.map((a, i) => el("option", { value: String(i) }, `${a.company} · ${a.title}`)));
+  const go = el("button", { class: "action primary", onclick: () => { const a = filed[Number(pick.value)]; form.remove(); startSkill(s.name, { company: a.company, title: a.title }); } }, "Start");
+  const form = el("div", { class: "skill-form" }, pick, el("div", { class: "toolbar" }, go, el("button", { class: "action", onclick: () => form.remove() }, "Cancel")));
+  btn.after(form);
+  pick.focus();
 }
 
 function refreshSkillButtons() {
@@ -837,7 +979,32 @@ function demoApi(path, opts = {}) {
   }
   const m = path.match(/^\/api\/digests\/([^/]+)\/entries\/(\d+)$/);
   if (method === "PUT" && m) return Promise.resolve(demoMark(m[1], Number(m[2]), JSON.parse(opts.body || "{}")));
+  if (method === "PUT" && path === "/api/applications/status") return demoStatus(JSON.parse(opts.body || "{}"));
   return Promise.reject(new Error(DEMO_NOTE));
+}
+
+// Change a status in the bundled listing, the way scripts/tracker.py does
+// without its checks: the select offers only the moves it takes, and the date
+// input keeps the dates in order.
+function demoStatus(change) {
+  const data = DEMO.get["/api/applications"];
+  const f = data.folders.find(x => x.company === change.company);
+  const r = f && f.roles.find(x => x.role === (change.role || ""));
+  if (!r) return Promise.reject(new Error("Not in this demo"));
+  const h = r.history;
+  if (change.undo) h.pop();
+  if (change.status) h.push({ date: data.today, status: change.status });
+  else if (change.date && h.length) h[h.length - 1].date = change.date;
+  if ("note" in change) r.note = change.note.trim().replace(/\s+/g, " ");
+  const last = h[h.length - 1] || {};
+  const reached = Math.max(0, ...h.map(x => data.stage[x.status] || 0));
+  Object.assign(r, {
+    status: last.status || null, since: last.date || null, waiting: null,
+    applied: (h.find(x => x.status === "applied") || {}).date || null,
+    ended: data.ended.includes(last.status),
+    moves: data.statuses.filter(s => s !== last.status && (!(s in data.stage) || data.stage[s] > reached)),
+  });
+  return Promise.resolve(JSON.parse(JSON.stringify(data)));
 }
 
 // Tick a box in the bundled digest, and recount the way core.list_digests does.
