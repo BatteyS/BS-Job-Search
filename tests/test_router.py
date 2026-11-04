@@ -53,7 +53,7 @@ def test_every_skill_has_a_route_with_a_reason():
 def test_conversation_and_volume_go_to_sonnet_and_writing_to_opus():
     assert router.route("setup")["model"] == "sonnet"
     assert router.route("job-scan")["model"] == "sonnet"
-    for name in ("tailor-resume", "cover-letter"):
+    for name in ("tailor-resume", "cover-letter", "interview-prep"):
         r = router.route(name)
         assert (r["model"], r["effort"]) == ("opus", "high")
 

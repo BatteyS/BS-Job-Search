@@ -3,18 +3,21 @@
 server.py puts routes over these; the tests call them directly. Everything
 here reads this copy's own files and runs this copy's own scripts, and nothing
 else: the file reads are limited to the folders named below, the only writes
-are a digest's boxes, feedback.md's verdicts and the two key files, and the
-only commands are the ones in COMMANDS, with their arguments checked.
+are a digest's boxes, feedback.md's verdicts, the statuses in
+profile/applications.yaml and the two key files, and the only commands are the
+ones in COMMANDS, with their arguments checked.
 
 The page does what a person does between skills: reads a digest and marks it,
-finds what was filed under Applications/, runs the checks, and shows how far
-setup has got. Scoring, choosing bullets, and writing letters stay in Claude
-Code, where the skills are; claude_run.py streams those runs the same way the
-registry here streams a script.
+finds what was filed under Applications/ and records what came of each
+application, runs the checks, and shows how far setup has got. Scoring,
+choosing bullets, and writing letters stay in Claude Code, where the skills
+are; claude_run.py streams those runs the same way the registry here streams a
+script.
 """
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import os
 import re
@@ -31,6 +34,7 @@ if SCRIPTS not in sys.path:
 
 import digest_applies  # noqa: E402
 import doctor  # noqa: E402
+import tracker  # noqa: E402
 
 DIGESTS = digest_applies.DIGESTS
 APPS = digest_applies.APPS
@@ -175,27 +179,89 @@ def _files_in(folder: str) -> list[dict]:
     return files
 
 
-def list_applications() -> list[dict]:
-    """Every folder under Applications/ with its files. A folder whose name
-    starts with `_` is not an employer: the page shows it apart, and its
-    subfolders (resumes sent to people, grouped by person) each get a row."""
-    out = []
-    if not os.path.isdir(APPS):
-        return out
-    for name in sorted(os.listdir(APPS), key=str.lower):
-        folder = os.path.join(APPS, name)
-        if not os.path.isdir(folder) or name.startswith("."):
-            continue
-        employer = not name.startswith("_")
-        files = _files_in(folder)
-        if employer or files:
-            out.append({"company": name, "employer": employer, "files": files})
-        if not employer:
-            for sub in sorted(os.listdir(folder), key=str.lower):
-                if os.path.isdir(os.path.join(folder, sub)) and not sub.startswith("."):
-                    out.append({"company": f"{name}/{sub}", "employer": False,
-                                "files": _files_in(os.path.join(folder, sub))})
-    return out
+def _roles(company: str, on_disk: list[str], entries: list, index: dict,
+           today: dt.date) -> list[dict]:
+    """One employer's applications, each as tracker.as_dict() gives it, plus
+    whether its files are here and the digest entry it came from. A folder with
+    neither a filed role nor an entry gets one row for the employer as a whole."""
+    rows = [tracker.as_dict(e, today) for e in entries]
+    held = {e.role for e in entries}
+    rows += [tracker.as_dict(tracker.Entry(company, role), today)
+             for role in on_disk if role not in held]
+    if not rows:
+        rows = [tracker.as_dict(tracker.Entry(company, ""), today)]
+    for r in rows:
+        r["filed"] = r["role"] in on_disk
+        r["tracked"] = r["role"] in held
+        found = index.get((digest_applies.norm_company(company),
+                           digest_applies.norm_company(r["role"]))) if r["role"] else None
+        r["digest"] = ({k: found[k] for k in ("date", "n", "score")} if found else None)
+    return sorted(rows, key=lambda r: (r["role"] != "", r["role"].casefold()))
+
+
+def list_applications() -> dict:
+    """Every folder under Applications/ with its files, and each employer's
+    applications with where each stands in profile/applications.yaml.
+
+    A folder whose name starts with `_` is not an employer: the page shows it
+    apart, with no status, and its subfolders (resumes sent to people, grouped by
+    person) each get a row. An employer the tracker names but this machine has
+    no folder for is listed too, with `on_disk` false: Applications/ does not
+    sync between machines, and the tracker does."""
+    t = tracker.load()
+    today = dt.date.today()
+    index = digest_applies.digest_index()
+    by_company: dict[str, list] = {}
+    problems = []
+    for e in t.entries:
+        if e.company:
+            by_company.setdefault(e.company, []).append(e)
+        else:
+            problems.append(f"an entry with no company: {e.problem}")
+
+    folders = []
+    if os.path.isdir(APPS):
+        for name in sorted(os.listdir(APPS), key=str.lower):
+            folder = os.path.join(APPS, name)
+            if not os.path.isdir(folder) or name.startswith("."):
+                continue
+            employer = not name.startswith("_")
+            files = _files_in(folder)
+            if employer:
+                folders.append({"company": name, "employer": True, "on_disk": True,
+                                "files": files,
+                                "roles": _roles(name, tracker.roles_on_disk(folder),
+                                                by_company.pop(name, []), index, today)})
+            elif files:
+                folders.append({"company": name, "employer": False, "on_disk": True,
+                                "files": files, "roles": []})
+            if not employer:
+                for sub in sorted(os.listdir(folder), key=str.lower):
+                    if os.path.isdir(os.path.join(folder, sub)) and not sub.startswith("."):
+                        folders.append({"company": f"{name}/{sub}", "employer": False,
+                                        "on_disk": True, "roles": [],
+                                        "files": _files_in(os.path.join(folder, sub))})
+    for name in sorted(by_company, key=str.lower):
+        folders.append({"company": name, "employer": True, "on_disk": False, "files": [],
+                        "roles": _roles(name, [], by_company[name], index, today)})
+    return {"folders": folders, "file": tracker.TRACKER, "problem": t.problem,
+            "problems": problems, "statuses": list(tracker.STATUSES),
+            "meaning": tracker.MEANING, "stage": tracker.STAGE, "ended": list(tracker.ENDED),
+            "today": today.isoformat()}
+
+
+def set_application_status(company: str, role: str = "", **change) -> dict:
+    """Change where one application stands (tracker.set_status says how) and
+    return the listing as it now is. Only an application the tab lists can
+    change: one filed under Applications/, or one the tracker already holds."""
+    listed = list_applications()
+    folder = next((f for f in listed["folders"]
+                   if f["employer"] and f["company"] == company), None)
+    if folder is None or not any(r["role"] == role for r in folder["roles"]):
+        raise ValueError(f"the Applications tab lists no application for "
+                         f"{tracker.label(company, role)}")
+    tracker.set_status(company, role, allow_new=True, **change)
+    return list_applications()
 
 
 def application_file(company: str, name: str) -> str:
@@ -216,6 +282,17 @@ def application_file(company: str, name: str) -> str:
     if os.path.splitext(name)[1].lower() not in VIEWABLE:
         raise ValueError(f"the page does not open {os.path.splitext(name)[1]} files")
     return path
+
+
+def posting_path(company: str, title: str) -> str:
+    """The posting filed for one application, Applications/<company>/<title> -
+    posting.txt, or an error: what /interview-prep is started for. Only an
+    employer's folder has applications."""
+    if not company or not title:
+        raise ValueError("pick an application: a company and a job title")
+    if company.startswith("_"):
+        raise ValueError(f"{company} is not an employer's folder")
+    return application_file(company, f"{title} - posting.txt")
 
 
 # ------------------------------------------------------------------ profile
@@ -444,6 +521,8 @@ COMMANDS: dict[str, tuple[str, str, object]] = {
                 lambda p: _script("digest_applies", "--date", _date_arg(p))),
     "fetch": ("Fetch postings", "Save every apply's posting beside where its resume goes",
               lambda p: _script("digest_applies", "--date", _date_arg(p), "--fetch")),
+    "outcomes": ("Outcomes", "What came of each application, as the next scan reads it",
+                 lambda p: _script("digest_applies", "--outcomes")),
 }
 
 

@@ -75,8 +75,24 @@ def test_prompts_are_what_a_person_would_type(monkeypatch):
     assert claude_run.build_prompt("tailor-digest", {"date": "2026-11-02"}) == \
         "/tailor-digest for digests/2026-11-02.md"
     assert claude_run.build_prompt("tailor-digest") == "/tailor-digest"
+
+    filed = {("Acme Energy", "Project Engineer")}
+
+    def posting_path(company, title):
+        if (company, title) not in filed:
+            raise FileNotFoundError("not filed")
+        return "found"
+    monkeypatch.setattr(core, "posting_path", posting_path)
+    assert claude_run.build_prompt("interview-prep", {"company": " Acme Energy ",
+                                                      "title": "Project Engineer"}) == \
+        "/interview-prep for Applications/Acme Energy/Project Engineer - posting.txt"
+    with pytest.raises(FileNotFoundError):
+        claude_run.build_prompt("interview-prep", {"company": "Acme Energy", "title": "Analyst"})
+    with pytest.raises(FileNotFoundError):
+        claude_run.build_prompt("interview-prep", {"text": "Acme Energy"})
+
     assert [s["name"] for s in claude_run.skills()] == [
-        "job-scan", "tailor-digest", "tailor-resume", "cover-letter", "setup"]
+        "job-scan", "tailor-digest", "tailor-resume", "cover-letter", "interview-prep", "setup"]
 
 
 # ------------------------------------------------------------------- events

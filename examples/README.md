@@ -22,13 +22,15 @@ Every person, employer, school, and number in them is invented.
 | `clusters.yaml` | `profile/clusters.yaml` | The kinds of role to look for: title patterns, search terms, score bars. |
 | `filters.yaml` | `profile/filters.yaml` | Where to look and how much: metros, remote, pay floor, sources, and the two settings that decide what a scan costs to score. |
 
-`profile/feedback.md` is the one file not shown: it starts empty and fills with your
-verdicts on each digest.
+`profile/feedback.md` is not shown: it starts empty and fills with your verdicts on each
+digest. Nor is `profile/applications.yaml`, which the page's Applications tab writes as you
+record where each application stands; each demo has one.
 
 ## Demos
 
 Each example also has a `demo/` folder: a fictional digest, the postings for the roles it
-marked `apply`, the resume selections (manifests) for them, and a cover letter. From those,
+marked `apply`, the resume selections (manifests) for them, a cover letter, and
+`applications.yaml`, where those applications stand. From those,
 `ui/build_demo.py` builds the local page as static files, filled in for that person, with
 the resumes and letters built from their `master.md` and `story.md`:
 

@@ -1,5 +1,6 @@
 """A local page over this workflow: read and mark digests, find what was filed
-under Applications/, run the checks, and read your profile.
+under Applications/ and track where each application stands, run the checks,
+and read your profile.
 
     uv run ui/server.py                   # opens http://127.0.0.1:8765
     uv run ui/server.py --port 8800 --no-open
@@ -138,6 +139,26 @@ def append_verdicts(date: str):
 @app.get("/api/applications")
 def applications():
     return core.list_applications()
+
+
+@app.put("/api/applications/status")
+def application_status(change: dict):
+    """Change where one application stands, in profile/applications.yaml: a new
+    status, the date of the last one, the note, or undo the last change."""
+    bad = set(change) - {"company", "role", "status", "date", "note", "undo"}
+    if bad:
+        raise HTTPException(400, f"unknown fields: {sorted(bad)}")
+    for key in ("company", "role", "status", "date", "note"):
+        if key in change and not isinstance(change[key], str):
+            raise HTTPException(400, f"{key} must be text")
+    if "undo" in change and not isinstance(change["undo"], bool):
+        raise HTTPException(400, "undo must be true or false")
+    if not change.get("company"):
+        raise HTTPException(400, "say which employer")
+    company, role = change.pop("company"), change.pop("role", "")
+    if change.get("undo") is False:
+        del change["undo"]   # asks for nothing, the same as leaving it out
+    return _or_404(core.set_application_status, company, role, **change)
 
 
 @app.get("/api/applications/{company:path}/{name}")

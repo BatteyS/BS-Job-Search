@@ -1,0 +1,24 @@
+# Where each application stands, written by the page's Applications tab. Each
+# history line is a date and the status the application reached that day,
+# oldest first, so the last line is where it stands. The statuses: applied,
+# heard back, interviewing, offer, accepted, rejected, withdrawn, no response.
+# A write rewrites this file in this layout: keys you add by hand are kept,
+# comments are not. The file is tracked, so it holds no phone numbers or email
+# addresses.
+
+applications:
+
+- company: Capitol Valley Hospital
+  role: Clinical Nurse Educator, Cardiovascular Services
+  history:
+  - 2026-10-28 applied
+  - 2026-11-02 heard back
+  note: The unit's nurse manager wrote back to set up a call.
+
+- company: Sierra Crest Health
+  role: Clinical Informatics Nurse, Inpatient Documentation
+  history:
+  - 2026-10-28 applied
+  - 2026-10-30 heard back
+  - 2026-11-03 interviewing
+  note: A screen with the informatics team lead; a panel interview is next.

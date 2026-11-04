@@ -201,6 +201,10 @@ Then, below it, only the things that need the user's attention:
 - anything added to `master.md` or `story.md`, stated explicitly — those files are their
   ground truth and they should know when they change
 
+End with one line: as each one is sent, mark it `applied` in the page's Applications tab,
+so later scans learn what came of it. Do not mark them yourself; only the user knows what
+went out.
+
 ## Notes
 
 - Re-running is safe. Builds are deterministic from `master.md` and overwrite in place, so

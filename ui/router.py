@@ -36,6 +36,9 @@ ROUTES = {
                       "exists for"),
     "cover-letter": ("opus", "high",
                      "a letter has to read well and cite a source for every claim"),
+    "interview-prep": ("opus", "high",
+                       "a prep sheet has to pick the stories this posting asks about and "
+                       "cite a source for every claim, as a letter does"),
     "tailor-digest": ("opus", "medium", "Opus for the judgment each resume needs"),
 }
 

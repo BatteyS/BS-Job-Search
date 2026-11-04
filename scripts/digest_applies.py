@@ -11,12 +11,18 @@ scoring that follows it.
     python scripts/digest_applies.py --pending       # only the not-yet-built
     python scripts/digest_applies.py --verdicts      # the marks, as a feedback.md section
     python scripts/digest_applies.py --fetch         # save every apply's posting
+    python scripts/digest_applies.py --outcomes      # what came of each application
 
 --verdicts prints the marks in profile/feedback.md's format, for the user to check
 before it is appended -- the calibration loop stalled for months on that step. --fetch
 saves each apply's posting beside where its resume will go; when the digest's link
 fails or comes back thin, it looks the role up on the employer's own board in
 sources/companies.yaml, which is where Redwood's posting was when LinkedIn refused it.
+
+--outcomes lists every application in profile/applications.yaml (scripts/tracker.py)
+beside the digest entry it came from -- score, metro, why, gaps -- grouped by what came
+of it, for job-scan to calibrate on. Each entry here also carries its application's
+status, so the page shows it on the digest.
 
 Entries are matched on the checkboxes the user ticks:
 
@@ -33,6 +39,7 @@ no box at all are each reported rather than guessed at.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import glob
 import json
 import os
@@ -40,6 +47,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tracker  # noqa: E402
 from build_resume import safe_name  # noqa: E402  -- one definition, no drift
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -58,6 +66,15 @@ RE_SCORE = re.compile(r"^\*\*(\d+)\*\*$")
 RE_RESUME = re.compile(r"^\*\*Resume:\*\*\s*([A-Za-z_-]+)")
 RE_URL = re.compile(r"\[View posting\]\(([^)]+)\)")
 RE_FIELD = re.compile(r"^\*\*([A-Za-z ]+):\*\*\s*(.*)$")
+RE_DIGEST_NAME = re.compile(r"^\d{4}-\d{2}-\d{2}\.md$")
+
+
+def digest_files() -> list[str]:
+    """Every digest, oldest first: the names are ISO dates."""
+    if not os.path.isdir(DIGESTS):
+        return []
+    return [os.path.join(DIGESTS, n) for n in sorted(os.listdir(DIGESTS))
+            if RE_DIGEST_NAME.match(n)]
 
 
 def newest_digest() -> str:
@@ -132,15 +149,29 @@ def read_prose(body: list[str]) -> dict[str, str]:
     return out
 
 
-def parse(path: str) -> dict:
-    lines = open(path, encoding="utf-8").read().splitlines()
+def employer_folders() -> dict[str, str]:
+    """The employer folders under Applications/, by folded name."""
+    if not os.path.isdir(APPS):
+        return {}
+    # A leading underscore marks a folder that is not an employer.
+    return {norm_company(d): d for d in os.listdir(APPS)
+            if not d.startswith("_") and os.path.isdir(os.path.join(APPS, d))}
 
-    existing = {}
-    if os.path.isdir(APPS):
-        # A leading underscore marks a folder that is not an employer.
-        existing = {norm_company(d): d for d in os.listdir(APPS)
-                    if not d.startswith("_")
-                    and os.path.isdir(os.path.join(APPS, d))}
+
+def tracked_roles() -> dict[tuple[str, str], tracker.Entry]:
+    """The tracker's applications by folded employer and role, so a digest entry
+    finds its own whichever spelling of the employer each uses."""
+    return {(norm_company(e.company), norm_company(e.role)): e
+            for e in tracker.load().entries if e.role and not e.problem}
+
+
+def read_entries(path: str, existing: dict[str, str] | None = None,
+                 tracked: dict | None = None) -> list[dict]:
+    """Every entry in one digest, with its marks, where its files go, and its
+    application's status in the tracker."""
+    lines = open(path, encoding="utf-8").read().splitlines()
+    existing = employer_folders() if existing is None else existing
+    tracked = tracked_roles() if tracked is None else tracked
 
     entries = []
     for n, heading, body in entry_blocks(lines):
@@ -184,6 +215,7 @@ def parse(path: str) -> dict:
         letter_pdf = os.path.join(folder, stem + " - cover letter.pdf")
         posting = os.path.join(folder, stem + " - posting.txt")
         rel = lambda p: os.path.relpath(p, ROOT).replace(os.sep, "/")  # noqa: E731
+        app = tracked.get((norm_company(company), norm_company(title)))
 
         entries.append({
             "n": n,
@@ -209,8 +241,14 @@ def parse(path: str) -> dict:
             "already_built": os.path.exists(pdf) and os.path.exists(tex),
             "letter_built": os.path.exists(letter_pdf),
             "folder_note": note,
+            "status": app.status if app else None,
+            "status_since": app.since if app else None,
         })
+    return entries
 
+
+def parse(path: str) -> dict:
+    entries = read_entries(path)
     apply = [e for e in entries if e["marked_apply"] and not e["marked_skip"]]
     return {
         "digest": os.path.relpath(path, ROOT).replace(os.sep, "/"),
@@ -286,8 +324,9 @@ def write_marks(path: str, n: int, *, apply: bool | None = None, skip: bool | No
 
 def verdicts(result: dict) -> str:
     """The digest's marks as a section of profile/feedback.md, followed by what
-    to settle before appending it: skips with no reason, and unmarked entries
-    whose resume is already filed, which were probably applied to."""
+    to settle before appending it: skips with no reason, marks the tracker
+    contradicts, and unmarked entries whose resume is already filed, which were
+    probably applied to."""
     def role(e: dict) -> str:
         return f"{e['company']} {EM_DASH} {e['title']}"
 
@@ -306,13 +345,126 @@ def verdicts(result: dict) -> str:
                 for e in skip]
         out.append("")
 
+    # A withdrawal can mean it was never sent, which agrees with a skip.
+    sent = lambda e: e["status"] not in (None, "withdrawn")  # noqa: E731
     check = [f"  #{e['n']} {role(e)}: skipped with no reason, which teaches the "
              "scorer nothing" for e in skip if not e["skip_reason"]]
-    check += [f"  #{e['n']} {role(e)}: unmarked, but its resume is filed -- "
-              "probably applied" for e in result["unmarked"] if e["already_built"]]
+    check += [f"  #{e['n']} {role(e)}: skipped, but {tracker.TRACKER} has it as "
+              f"{e['status']}" for e in skip if sent(e)]
+    for e in result["unmarked"]:
+        if sent(e):
+            check.append(f"  #{e['n']} {role(e)}: unmarked, but {tracker.TRACKER} has it "
+                         f"as {e['status']} -- tick apply")
+        elif e["already_built"]:
+            check.append(f"  #{e['n']} {role(e)}: unmarked, but its resume is filed -- "
+                         "probably applied")
     if check:
         out += ["Settle before appending:"] + check
     return "\n".join(out).rstrip() + "\n"
+
+
+def digest_index() -> dict[tuple[str, str], dict]:
+    """Every digest's entries by folded employer and title, to find the entry an
+    application came from: the newest one marked apply, else the newest. A scan
+    shows a role it has seen only once, so there is rarely a choice."""
+    index: dict = {}
+    existing = employer_folders()
+    for path in digest_files():
+        date = os.path.splitext(os.path.basename(path))[0]
+        for e in read_entries(path, existing, tracked={}):
+            applied = e["marked_apply"] and not e["marked_skip"]
+            key = (norm_company(e["company"]), norm_company(e["title"]))
+            old = index.get(key)
+            if old is None or applied or not old["marked_apply"]:
+                index[key] = {"date": date, "n": e["n"], "company": e["company"],
+                              "title": e["title"], "score": e["score"], "metro": e["metro"],
+                              "comp": e["comp"], "why": e["why"], "gaps": e["gaps"],
+                              "marked_apply": applied}
+    return index
+
+
+def outcomes(today: dt.date | None = None) -> dict:
+    """Every application in the tracker beside the digest entry it came from,
+    and the roles filed on this machine that have no status yet."""
+    today = today or dt.date.today()
+    t = tracker.load()
+    index = {} if t.problem else digest_index()
+    rows = []
+    for e in t.entries:
+        found = index.get((norm_company(e.company), norm_company(e.role))) if e.role else None
+        rows.append({**tracker.as_dict(e, today), "digest": found})
+    known = {(norm_company(e.company), norm_company(e.role)) for e in t.entries}
+    filed = []
+    if os.path.isdir(APPS):
+        for company in sorted(os.listdir(APPS), key=str.casefold):
+            folder = os.path.join(APPS, company)
+            if company.startswith(("_", ".")) or not os.path.isdir(folder):
+                continue
+            filed += [{"company": company, "role": role}
+                      for role in tracker.roles_on_disk(folder)
+                      if (norm_company(company), norm_company(role)) not in known]
+    return {"tracker": tracker.TRACKER, "problem": t.problem, "today": today.isoformat(),
+            "applications": rows, "filed_no_status": filed}
+
+
+# outcome -> (heading, what it means), in the order --outcomes prints them.
+OUTCOMES = {
+    "forward": ("WENT FORWARD", "a person answered with interest, so the resume cleared "
+                                "the screen"),
+    "screened out": ("SCREENED OUT", "rejected before anyone answered, no response, or no "
+                                     f"word in {tracker.STALE_DAYS}+ days"),
+    "waiting": ("WAITING", f"applied under {tracker.STALE_DAYS} days ago: not evidence yet"),
+    "withdrawn": ("WITHDRAWN", "the user's own call; the note says why"),
+}
+
+
+def print_outcomes(o: dict) -> int:
+    print(f"tracker   : {o['tracker']}")
+    if o["problem"]:
+        print(f"  {o['problem']}")
+        print("  Score this scan without outcomes.")
+        return 1
+    rows = o["applications"]
+    n = {key: sum(r["outcome"] == key for r in rows) for key in OUTCOMES}
+    print(f"outcomes  : {sum(n.values())} tracked, " + ", ".join(
+        f"{n[key]} {'went forward' if key == 'forward' else key}" for key in OUTCOMES))
+    for key, (heading, about) in OUTCOMES.items():
+        group = [r for r in rows if r["outcome"] == key]
+        if not group:
+            continue
+        print()
+        print(f"{heading} ({len(group)}) -- {about}")
+        for r in group:
+            print(f"  {tracker.label(r['company'], r['role'])}")
+            print(f"       {r['summary']}")
+            d = r["digest"]
+            if d:
+                score = d["score"] if d["score"] is not None else "?"
+                print(f"       digest {d['date']} #{d['n']}, scored {score}, "
+                      f"{d['metro'] or 'no metro'}" + (f", {d['comp']}" if d["comp"] else ""))
+                for field in ("why", "gaps"):
+                    if d[field]:
+                        print(f"       {field}: {d[field]}")
+            else:
+                print("       not from a digest")
+            if r["note"]:
+                print(f"       note: {r['note']}")
+    broken = [r for r in rows if r["problem"]]
+    if broken:
+        print()
+        print(f"CANNOT READ ({len(broken)}) -- fix these entries in {o['tracker']} by hand")
+        for r in broken:
+            print(f"  {r['company'] or '(no company)'}: {r['problem']}")
+    unset = [r for r in rows if not r["problem"] and not r["status"]] + o["filed_no_status"]
+    if unset:
+        print()
+        print(f"NO STATUS YET ({len(unset)}) -- not marked sent, so no outcome; the page's "
+              "Applications tab sets one")
+        for r in unset:
+            print(f"  {tracker.label(r['company'], r['role'])}")
+    if not rows and not unset:
+        print("  nothing tracked yet")
+    return 0
 
 
 def find_on_board(company: str, title: str, boards: list[dict],
@@ -399,7 +551,17 @@ def main() -> int:
     ap.add_argument("--fetch", action="store_true",
                     help="save each apply's posting, from the employer's board if the "
                          "link fails")
+    ap.add_argument("--outcomes", action="store_true",
+                    help="what came of each application in profile/applications.yaml, "
+                         "beside what its digest said")
     args = ap.parse_args()
+
+    if args.outcomes:
+        o = outcomes()
+        if args.json:
+            print(json.dumps(o, indent=2, ensure_ascii=False))
+            return 1 if o["problem"] else 0
+        return print_outcomes(o)
 
     if args.digest:
         path = args.digest

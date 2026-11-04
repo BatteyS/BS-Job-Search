@@ -5,16 +5,18 @@ as static files any browser opens without a server.
     uv run python ui/build_demo.py OUT_DIR --no-pdf      # skip LaTeX
 
 For each examples/<name>/ with a demo/ folder, it lays the example out the way
-a copy of this repo is laid out (profile/, content/, digests/, Applications/)
-in a scratch folder, builds the resumes and letters demo/demo.json lists into
-that folder's Applications/, and asks core.py what each of the page's routes
-would answer there. The page reads those answers from demo.js instead of a
-server, so a demo shows exactly what the page would show for that profile.
+a copy of this repo is laid out (profile/, content/, digests/, Applications/,
+and demo/applications.yaml as profile/applications.yaml) in a scratch folder,
+builds the resumes, letters, and interview prep sheets demo/demo.json lists
+into that folder's Applications/, and asks core.py what each of the page's
+routes would answer there. The page reads those answers from demo.js instead of a server, so a demo
+shows exactly what the page would show for that profile.
 
 OUT_DIR gets index.html, which lists the examples, and a folder for each. The
 demos are published at https://batteys.github.io/BS-Job-Search/ from the
 public repo's gh-pages branch. The PDFs need LaTeX; without it, or with
---no-pdf, a demo still has its digest, postings, and profile, but no PDFs.
+--no-pdf, a demo still has its digest, postings, prep sheets, and profile, but
+no PDFs.
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ sys.path.insert(0, HERE)
 import claude_run  # noqa: E402
 import core  # noqa: E402
 import digest_applies  # noqa: E402  (core put scripts/ on the path)
+import tracker  # noqa: E402
 
 ROOT = core.ROOT
 EXAMPLES = os.path.join(ROOT, "examples")
@@ -69,18 +72,25 @@ def lay_out(name: str, repo: str) -> dict:
         if os.path.isdir(os.path.join(src, "demo", folder)):
             shutil.copytree(os.path.join(src, "demo", folder), os.path.join(repo, folder))
     os.makedirs(os.path.join(repo, "Applications"), exist_ok=True)
+    statuses = os.path.join(src, "demo", "applications.yaml")
+    if os.path.isfile(statuses):
+        os.makedirs(os.path.join(repo, "profile"), exist_ok=True)
+        shutil.copy(statuses, os.path.join(repo, tracker.TRACKER))
     with open(os.path.join(src, "demo", "demo.json"), encoding="utf-8") as fh:
         return json.load(fh)
 
 
-def run_builder(module: str, apps: str, args: list[str], out: str) -> None:
-    """Build one resume or letter into `apps`, then clear the build's working
-    copies out of Resume/: the filed copies are what the demo keeps."""
+def run_builder(module: str, apps: str, args: list[str], out: str | None = None) -> None:
+    """Build one resume, letter, or prep sheet into `apps`. A LaTeX build names
+    its working copies `out`, which are then cleared out of Resume/: the filed
+    copies are what the demo keeps."""
     cmd = [sys.executable, "-c", RUNNER.format(module=module), core.SCRIPTS, apps,
-           *args, "--out", out]
+           *args, *(["--out", out] if out else [])]
     r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
     if r.returncode != 0:
         raise SystemExit(f"{module} failed for the demo:\n{r.stdout}{r.stderr}")
+    if not out:
+        return
     for pattern in (f"Resume/LaTeX/{out}.tex", f"Resume/pdf/{out}.pdf", f"Resume/build/{out}.*"):
         for path in glob.glob(os.path.join(ROOT, pattern)):
             os.remove(path)
@@ -104,12 +114,25 @@ def build_documents(name: str, meta: dict, repo: str) -> None:
                     f"demo_{name}_letter_{i}")
 
 
+def build_preps(name: str, meta: dict, repo: str) -> None:
+    """The interview prep sheets demo.json lists. They are Markdown, so a demo
+    has them even without LaTeX."""
+    src = os.path.join(EXAMPLES, name)
+    for prep in meta.get("preps", []):
+        run_builder("build_prep", os.path.join(repo, "Applications"),
+                    ["--prep", os.path.join(src, "demo", prep["prep"]),
+                     "--company", prep["company"], "--title", prep["title"],
+                     "--master", os.path.join(src, "master.md"),
+                     "--story", os.path.join(src, "story.md")])
+
+
 def answers(repo: str) -> dict:
     """What each GET route of the page answers for the copy at `repo`: the same
     core.py calls server.py makes, pointed there for the moment."""
     saved = [(m, k, getattr(m, k)) for m in (core, digest_applies)
-             for k in ("ROOT", "DIGESTS", "APPS")]
+             for k in ("ROOT", "DIGESTS", "APPS")] + [(tracker, "ROOT", tracker.ROOT)]
     try:
+        tracker.ROOT = repo
         for m in (core, digest_applies):
             m.ROOT = repo
             m.DIGESTS = os.path.join(repo, "digests")
@@ -234,6 +257,7 @@ def build(out: str, pdf: bool = True) -> list[str]:
             meta = lay_out(name, repo)
             if pdf:
                 build_documents(name, meta, repo)
+            build_preps(name, meta, repo)
             write_site(name, meta, repo, answers(repo), out)
         finally:
             shutil.rmtree(repo, ignore_errors=True)

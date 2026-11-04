@@ -1,9 +1,10 @@
 # BS-Job-Search
 
 A job scan that ranks postings against your own written profile, a resume builder that
-selects from one file of your facts, and a cover-letter writer that cites a source for
-every claim. All three run from [Claude Code](https://claude.com/claude-code), and you
-can drive all of it from a web page on your own machine. To see that page before
+selects from one file of your facts, and a cover-letter writer and interview prep sheet
+that cite a source for every claim. All of it runs from
+[Claude Code](https://claude.com/claude-code), and you can drive it from a web page on
+your own machine. To see that page before
 installing anything, open the [example demos](https://batteys.github.io/BS-Job-Search/);
 for what a filled-in profile looks like, see [`examples/`](examples/README.md).
 
@@ -123,7 +124,7 @@ by hand instead, starting from an example.
 |---|---|
 | `content/contact.local.md` | Name, email, links. Start from `content/contact.example.md`. |
 | `content/master.md` | Every resume fact you have. |
-| `content/story.md` | What a cover letter needs that a resume does not. Start from `content/story.example.md`. |
+| `content/story.md` | What a cover letter or an interview needs that a resume does not. Start from `content/story.example.md`. |
 | `profile/profile.md` | How a scan should judge a role for you. |
 | `profile/clusters.yaml` | The kinds of role to look for. |
 | `profile/filters.yaml` | Where to look, how much, and which sources. Metros to copy come from `presets/metros.yaml`. |
@@ -169,21 +170,42 @@ in a terminal, in this folder:
 4. **Cover letter** (`/cover-letter`) writes a letter whose every claim cites `master.md`,
    `story.md`, the posting, or something you said, and refuses any number none of those
    holds. When a letter needs a story your files do not have, it asks you for it first.
+5. **Interview prep** (`/interview-prep`), once you have an interview, writes a prep
+   sheet for one application: the questions its posting makes likely, each answered from
+   your files as situation, action, and result; the gaps it exposes, each with an honest
+   way to answer it; and questions to ask them. Every answer lists its sources, under the
+   cover letter's checks, and a question your files cannot answer stays on the sheet as
+   one to prepare. In the page, pick the application from the postings filed under
+   `Applications/`; the sheet is filed beside its resume as
+   `<Job Title> - interview prep.md`, and the Applications tab shows it.
+6. **Track what you send.** In the **Applications** tab, mark each application `applied`
+   when it goes out, then `heard back`, `interviewing`, `offer` and `accepted`, or
+   `rejected`, `withdrawn` or `no response`, as it moves. Each change is dated, today
+   unless you set it back, and saved to `profile/applications.yaml`. Every later scan
+   reads what came of each: roles like the ones that got an answer score up, and a trait
+   shared by several that got none scores down.
 
 Nothing edits your profile or resume facts behind your back. Skills select from them;
 when a posting wants something you do not have, that is reported as a gap. The only
-additions come from interviews you take part in: setup, and a cover letter that asks
-for a story. Each shows you the exact text and writes only what you approve.
+additions come from interviews you take part in: setup, and a cover letter or interview
+prep sheet that asks for a story. Each shows you the exact text and writes only what you
+approve.
 
 ### About the page
 
 Start it with `start.command` (`start.cmd` on Windows) or `uv run ui/server.py`; starting
 it again while it is up opens the running page. Besides running the skills, it lets you
 read each digest and mark it (it writes the boxes back into the file), turn the marks
-into a `feedback.md` section and append it once nothing is left to settle, run
-`doctor.py` and the posting fetch with their output live, and read your profile files.
-Its Setup tab shows how far setup has got and everything `doctor.py` checks, and saves
-your API keys.
+into a `feedback.md` section and append it once nothing is left to settle, record where
+each application stands, run `doctor.py` and the posting fetch with their output live,
+and read your profile files. Its Setup tab shows how far setup has got and everything
+`doctor.py` checks, and saves your API keys.
+
+The **Applications** tab opens on a table of every application: each role filed under
+`Applications/`, and each one `profile/applications.yaml` holds, even when its files are
+on another machine. A status moves forward or ends, and **Undo** removes the last change
+if you picked the wrong one. A note can hold what they said or why it ended, which the
+scan reads too, but not an email address or a phone number, since the file is tracked.
 
 It answers only requests addressed to `127.0.0.1` or `localhost`, and none from a page
 on another site, so a website open in the same browser can neither read it nor start a
@@ -193,8 +215,8 @@ Each skill runs on a model and effort level picked for it, shown on its button a
 the top of its run with the reason:
 
 - Interviews and scans go to Sonnet, which uses less of a Claude plan.
-- Tailored resumes and cover letters go to Opus at high effort, where the judgment is
-  the point.
+- Tailored resumes, cover letters, and interview prep go to Opus at high effort, where
+  the judgment is the point.
 - Tailoring a digest follows what is marked in it: Sonnet for many resumes without
   letters, Opus once letters are involved.
 - When your plan's 5-hour session or week is 80% used, a run headed for Opus goes to
@@ -325,8 +347,10 @@ Deliberately **not** synced, and per-machine by design:
 | `Previous Employment Records/` | Same reasoning, higher sensitivity. |
 | `Resume/pdf/`, `Resume/build/`, `Resume/LaTeX/editing_*.tex` | Build outputs. The content is in `master.md`; the copy that matters is filed beside each application. |
 
-Because `Applications/` is not in the repo, **it is not backed up by pushing.** If that
-folder matters to you — and it doubles as the application tracker — back it up another way.
+Because `Applications/` is not in the repo, **it is not backed up by pushing**: if its
+files matter to you, back it up another way. Where each application stands is kept
+apart, in `profile/applications.yaml`, which is tracked, so the statuses and their dates
+reach your other machine even though the files do not.
 
 ## Updating from the template
 

@@ -17,8 +17,9 @@ Write the message describing what changed and why, nothing else.
 
 Skills and scripts **select** from these; they never invent, embellish, or infer a claim.
 If a posting wants something the user genuinely lacks, that is a gap to report, not
-something to write around. A cover letter says only what these files, the posting, or
-the user in chat said first, and every number in it must come from one of them.
+something to write around. A cover letter or an interview prep sheet says only what these
+files, the posting, or the user in chat said first, and every number in it must come
+from one of them.
 
 There are two exceptions, and both write only what the user said, in their words, after
 the user approves it:
@@ -51,6 +52,9 @@ the user approves it:
 - **Resumes target a 30-second recruiter scan.** One page unless the user's `master.md`
   sets `max_pages`, no unexplained gaps, fewer strong entries over more thin ones.
 - **Never widen scan filters to produce more results.** A thin digest is information.
+- **Application statuses are the user's own record.** `profile/applications.yaml` is
+  written by the page's Applications tab, or by hand; skills read it and never write it,
+  since only the user knows what was sent and what came back (decided 2026-11-03).
 
 ## Personal data
 

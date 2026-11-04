@@ -182,7 +182,7 @@ class Sources:
             if (not any(f in norm(p) for p in self.story)
                     and any(f in norm(p) for p in self.kept_out)):
                 return None, ('is under "Keep out of letters" in story.md, which a letter '
-                              "must never mention")
+                              "or an interview answer must never mention")
             pool = self.story
         else:
             pool = [b for b in self.bullets if f in norm(b)] or self.headings
@@ -192,6 +192,39 @@ class Sources:
         if not hits:
             return None, f"matches nothing in {kind}"
         return None, f"matches {len(hits)} passages in {kind}; use a longer fragment"
+
+
+def check_passage(where: str, text: str, cited, sources: Sources, errors: list[str],
+                  warnings: list[str], stock: bool = True) -> list[tuple[str, str, str | None]]:
+    """The checks every passage that cites its sources gets, in a letter or an
+    interview prep sheet (build_prep.py): each source names one passage that
+    exists, and every number in `text` appears in one of them. `stock` also
+    flags stock phrases. `where` names the passage in messages ("paragraph 2").
+    Appends to errors and warnings, and returns the sources as (kind, fragment,
+    the passage it resolved to, or None)."""
+    if cited is not None and not isinstance(cited, list):
+        errors.append(f"{where}: sources must be a list, as [{{\"master\": \"...\"}}]")
+        cited = []
+    resolved = []
+    for src in cited or []:
+        if not (isinstance(src, dict) and len(src) == 1 and next(iter(src)) in SOURCE_KINDS):
+            errors.append(f"{where}: a source must be one of "
+                          f"{', '.join(SOURCE_KINDS)}, as {{\"master\": \"...\"}}; got {src!r}")
+            continue
+        kind, fragment = next(iter(src.items()))
+        found, why = sources.resolve(kind, str(fragment))
+        if found is None:
+            errors.append(f"{where}: {kind} source {str(fragment)[:60]!r} {why}")
+        resolved.append((kind, str(fragment), found))
+    backing = " ".join(f for _, _, f in resolved if f)
+    unsourced = sorted(numbers(text) - numbers(backing), key=lambda n: (len(n), n))
+    if unsourced:
+        errors.append(f"{where}: {', '.join(unsourced)} appear(s) in none of its "
+                      "sources -- cite the passage that says it, or take it out")
+    found_stock = [s for s in STOCK_PHRASES if s in text.lower()] if stock else []
+    if found_stock:
+        warnings.append(f"{where}: stock phrasing ({', '.join(found_stock)})")
+    return resolved
 
 
 def check(letter: dict, sources: Sources) -> tuple[list[dict], list[str], list[str]]:
@@ -207,26 +240,8 @@ def check(letter: dict, sources: Sources) -> tuple[list[dict], list[str], list[s
         text = (p.get("text") or "").strip()
         if not text:
             errors.append(f"paragraph {i} has no text")
-        resolved = []
-        for src in p.get("sources") or []:
-            if not (isinstance(src, dict) and len(src) == 1 and next(iter(src)) in SOURCE_KINDS):
-                errors.append(f"paragraph {i}: a source must be one of "
-                              f"{', '.join(SOURCE_KINDS)}, as {{\"master\": \"...\"}}; got {src!r}")
-                continue
-            kind, fragment = next(iter(src.items()))
-            found, why = sources.resolve(kind, str(fragment))
-            if found is None:
-                errors.append(f"paragraph {i}: {kind} source {str(fragment)[:60]!r} {why}")
-            resolved.append((kind, str(fragment), found))
-        backing = " ".join(f for _, _, f in resolved if f)
-        unsourced = sorted(numbers(text) - numbers(backing), key=lambda n: (len(n), n))
-        if unsourced:
-            errors.append(f"paragraph {i}: {', '.join(unsourced)} appear(s) in none of its "
-                          "sources -- cite the passage that says it, or take it out")
-        low = text.lower()
-        stock = [s for s in STOCK_PHRASES if s in low]
-        if stock:
-            warnings.append(f"paragraph {i}: stock phrasing ({', '.join(stock)})")
+        resolved = check_passage(f"paragraph {i}", text, p.get("sources"), sources,
+                                 errors, warnings)
         reports.append({"text": text, "sources": resolved})
     words = sum(len(r["text"].split()) for r in reports)
     if paras and not WORDS_LOW <= words <= WORDS_HIGH:

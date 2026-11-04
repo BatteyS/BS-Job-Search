@@ -1,0 +1,24 @@
+# Where each application stands, written by the page's Applications tab. Each
+# history line is a date and the status the application reached that day,
+# oldest first, so the last line is where it stands. The statuses: applied,
+# heard back, interviewing, offer, accepted, rejected, withdrawn, no response.
+# A write rewrites this file in this layout: keys you add by hand are kept,
+# comments are not. The file is tracked, so it holds no phone numbers or email
+# addresses.
+
+applications:
+
+- company: Larchmont Software
+  role: Principal Product Marketing Manager, Pricing & Packaging
+  history:
+  - 2026-10-28 applied
+  - 2026-11-02 rejected
+  note: A form rejection, before anyone called.
+
+- company: Tallgrass Freight Cloud
+  role: Director, Product Marketing
+  history:
+  - 2026-10-28 applied
+  - 2026-10-31 heard back
+  - 2026-11-03 interviewing
+  note: The VP of marketing called after reading the cover letter.

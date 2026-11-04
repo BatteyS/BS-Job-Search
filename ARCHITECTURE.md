@@ -10,10 +10,10 @@ never decides what is good for you, and Claude never skips a check a script can 
 
 | Part | Where | What it is |
 |---|---|---|
-| Skills | `.claude/skills/` | The workflows Claude follows: `setup`, `job-scan`, `tailor-resume`, `tailor-digest`, `cover-letter`. |
+| Skills | `.claude/skills/` | The workflows Claude follows: `setup`, `job-scan`, `tailor-resume`, `tailor-digest`, `cover-letter`, `interview-prep`. |
 | Scripts | `scripts/` | Python with no LLM inside. Each one starts with a docstring saying what it does and why. |
 | Presets | `presets/` | Knowledge every profile shares: title exclusions by career stage and job type, US metros, and place names. |
-| Your profile | `profile/` | How to judge a role for you (`profile.md`), what to look for (`clusters.yaml`), where and how much (`filters.yaml`), and your verdicts (`feedback.md`). |
+| Your profile | `profile/` | How to judge a role for you (`profile.md`), what to look for (`clusters.yaml`), where and how much (`filters.yaml`), your verdicts (`feedback.md`), and where each application stands (`applications.yaml`). |
 | Your facts | `content/` | Every resume fact (`master.md`), the stories behind them (`story.md`), and contact details (`contact.local.md`, never committed). |
 | Sources | `sources/` | API keys (never committed) and the employers whose boards you read (`companies.yaml`). |
 | Examples and tests | `examples/`, `tests/` | Two complete fictional profiles, and the tests that run against them. |
@@ -64,10 +64,13 @@ also tracks each company board, so one that fails, or reads empty, three runs in
 is named in the digest's warnings: an empty board has usually moved.
 
 **Stage 2 is the `job-scan` skill.** Claude reads every candidate against the rubric in
-`profile.md`, the corrections in `feedback.md`, and each cluster's notes, subtracts the
-location penalty, and writes the digest. Your `apply` and `skip — reason` marks go back
-into `feedback.md`, which is how scoring improves. A third box, `cover letter`, asks for a
-letter beside an apply's resume.
+`profile.md`, the corrections in `feedback.md`, what came of past applications, and each
+cluster's notes, subtracts the location penalty, and writes the digest. Your `apply` and
+`skip — reason` marks go back into `feedback.md`, which is how scoring learns what you
+want. A third box, `cover letter`, asks for a letter beside an apply's resume. The
+outcomes teach it what employers answer: roles like those that went forward score up, and
+a trait shared by several that were screened out scores down, while one outcome alone
+moves nothing.
 
 ## A resume
 
@@ -100,6 +103,46 @@ exact text, so the letter cites a file and the next letter finds the story there
 `/tailor-digest` asks these questions for every role ticked `cover letter` before it
 builds any resume, so a fact you add reaches every resume in the batch.
 
+## What came of it
+
+An application is one role at one employer, named the way its files are under
+`Applications/<Company>/`. Where each stands is kept in `profile/applications.yaml`
+(`scripts/tracker.py`): applied, heard back, interviewing, offer, accepted, rejected,
+withdrawn, or no response, one dated line per change, so the file holds every date and
+its last line is the current status. A status moves only forward or to an ending; undoing
+the last change fixes a mistake without losing the dates before it. The file is tracked,
+unlike `Applications/`, so the record reaches every machine, and it is never exported
+with the template.
+
+Only the page writes it, since only you know what was sent and what came back. Each write
+rewrites the file in one layout, so a change is one line in the diff. It refuses a note
+that holds an email address or a phone number, and writes nothing while the file does
+not load. `digest_applies.py --outcomes` joins each application to the digest entry it
+came from and sorts it: went forward (a person answered with interest), screened out
+(rejected before that, no response, or 30 days with no word), waiting, or withdrawn. That
+is what a scan reads.
+
+## An interview prep sheet
+
+`/interview-prep` works from one application's folder: the posting saved there, the
+resume and any letter filed beside it, and `master.md` and `story.md`. It writes three
+lists. The questions the posting makes likely, each answered as situation, action, and
+result, or, for a question about motivation, as one answer. The gaps the posting exposes:
+`ats_check.py` names the words the posting leans on that `master.md` never uses, Claude
+sorts real gaps from noise and from work done under another name, and each gap gets an
+honest way to answer it. And questions to ask the employer, from the posting and from what
+`story.md` says you want next.
+
+Every item lists what it was drawn from, and every answer what backs it, in the letter's
+four kinds of source. `build_prep.py --check` runs the letter's own checks on each
+passage, from the same code in `build_letter.py`, and adds the sheet's: every question and
+gap says where it came from, a gap quotes the posting where it asks for that thing, and an
+answer cites something you did or said, since a posting quote cannot. A question your
+files cannot answer stays on the sheet unanswered, as one to prepare. When `story.md`
+lacks the story an answer needs, it runs the cover letter's interview first, under the
+same rules. The sheet is Markdown, `Applications/<Company>/<Job Title> - interview
+prep.md`, with each answer's sources quoted in full beneath it.
+
 ## Setup and upkeep
 
 | Tool | Does |
@@ -108,7 +151,7 @@ builds any resume, so a fact you add reaches every resume in the batch.
 | `doctor.py` | Checks the machine, the profile, and the keys, and says what to fix. |
 | `extract_text.py` | Pulls the text out of a .docx, PDF, or text resume. |
 | `try_titles.py` | Checks job titles against the clusters, offline. |
-| `digest_applies.py` | Reads a marked digest: the roles to apply to and letters to write, the verdicts as a `feedback.md` section (`--verdicts`), and every apply's posting (`--fetch`). |
+| `digest_applies.py` | Reads a marked digest: the roles to apply to and letters to write, the verdicts as a `feedback.md` section (`--verdicts`), and every apply's posting (`--fetch`). `--outcomes` lists what came of each application, beside its digest entry. |
 | `fetch_posting.py` | Saves one posting's full text, or reports it dead or too thin to tailor from. |
 | `detect_ats.py` | Finds an employer's job board from its domain. |
 | `probe_workday.py` | Finds a Workday board that a careers page hides behind JavaScript. |
@@ -122,9 +165,9 @@ builds any resume, so a fact you add reaches every resume in the batch.
 Its Setup tab shows `doctor.py`'s checks, how far `/setup` has got, and a form that saves
 the API keys to their gitignored files; the page opens on it until the profile is written
 and reviewed. The rest is reading a digest and ticking its boxes, which it writes back
-into the `.md` in place; finding what was filed under `Applications/`; running
-`doctor.py` and `digest_applies.py` with the output streamed; and reading the profile
-files. It also runs the skills: `ui/claude_run.py` starts one
+into the `.md` in place; finding what was filed under `Applications/` and recording where
+each application stands; running `doctor.py` and `digest_applies.py` with the output
+streamed; and reading the profile files. It also runs the skills: `ui/claude_run.py` starts one
 through the Agent SDK driving the user's own Claude Code in this folder, so the skill,
 `CLAUDE.md` and `.claude/settings.json` are the same ones a terminal would load. Every
 prompt Claude Code would show a person, including the `ask` rule on `master.md`,
@@ -148,7 +191,7 @@ a run or answering a card.
 
 `ui/build_demo.py` builds the same page as static files for each example profile, from
 its `examples/<name>/demo/` folder: it lays the example out like a copy of this repo,
-builds its resumes and letters, and saves what each route would answer there into
+builds its resumes, letters and prep sheets, and saves what each route would answer there into
 `demo.js`, which the page reads instead of a server. The demos are published on the
 public repo's GitHub Pages.
 

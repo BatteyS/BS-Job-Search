@@ -309,6 +309,10 @@ or a section that reads oddly. Check:
 Variant, what landed, **every rewrite old → new**, anything trimmed, gaps found against the
 posting, and where the files landed.
 
+End with one line: once it is sent, mark it `applied` in the page's Applications tab, so
+later scans learn what came of it. Do not mark it yourself; only the user knows when it
+went out.
+
 ---
 
 ## Notes

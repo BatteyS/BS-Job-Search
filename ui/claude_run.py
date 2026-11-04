@@ -68,7 +68,8 @@ INSTALL = {"Windows": "irm https://claude.ai/install.ps1 | iex"}
 INSTALL_UNIX = "curl -fsSL https://claude.ai/install.sh | bash"
 
 # name -> label, what it does, the slash command, what it needs from the page:
-# None, "date" (the open digest, optional) or "text" (a URL or pasted posting).
+# None, "date" (the open digest, optional), "text" (a URL or pasted posting), or
+# "application" (a company and job title with a posting filed under Applications/).
 SKILLS: dict[str, tuple[str, str, str, str | None]] = {
     "job-scan": ("Job scan", "Fetch, filter, score against your profile, and write a digest",
                  "/job-scan", None),
@@ -79,6 +80,10 @@ SKILLS: dict[str, tuple[str, str, str, str | None]] = {
     "cover-letter": ("Cover letter",
                      "A letter for one posting; asks you for what your files lack",
                      "/cover-letter", "text"),
+    "interview-prep": ("Interview prep",
+                       "Likely questions with sourced answers, gaps, and questions to ask, "
+                       "for one application",
+                       "/interview-prep", "application"),
     "setup": ("Set up", "The first-time interview, or one left unfinished", "/setup", None),
 }
 
@@ -197,6 +202,11 @@ def build_prompt(name: str, params: dict | None = None) -> str:
     if needs == "date" and params.get("date"):
         core.digest_path(str(params["date"]))   # raises on a bad date
         return f"{command} for digests/{params['date']}.md"
+    if needs == "application":
+        company = str(params.get("company") or "").strip()
+        title = str(params.get("title") or "").strip()
+        core.posting_path(company, title)   # raises unless that posting is filed
+        return f"{command} for Applications/{company}/{title} - posting.txt"
     return command
 
 

@@ -1,7 +1,8 @@
 """The local page's reads and writes, through ui/core.py: marking a digest in
-place, the verdicts gate, the Applications listing, and the file guards. The
-routes in ui/server.py are thin over these; the check in front of them, which
-refuses other hosts and other sites, is also tried through the app itself."""
+place, the verdicts gate, the Applications listing and its statuses, and the
+file guards. The routes in ui/server.py are thin over these; the check in front
+of them, which refuses other hosts and other sites, is also tried through the
+app itself, and so is the status route."""
 
 from __future__ import annotations
 
@@ -20,6 +21,7 @@ sys.path.insert(0, os.path.join(ROOT, "ui"))
 import core  # noqa: E402
 import digest_applies  # noqa: E402
 import doctor  # noqa: E402
+import tracker  # noqa: E402
 
 DIGEST = """# Job digest — 2026-11-02
 
@@ -69,6 +71,7 @@ def repo(tmp_path, monkeypatch):
         monkeypatch.setattr(mod, "ROOT", str(tmp_path))
         monkeypatch.setattr(mod, "DIGESTS", str(tmp_path / "digests"))
         monkeypatch.setattr(mod, "APPS", str(apps))
+    monkeypatch.setattr(tracker, "ROOT", str(tmp_path))
     return tmp_path
 
 
@@ -159,7 +162,7 @@ def test_verdicts_wait_until_settled_then_append_once(repo):
 # ---------------------------------------------------------- applications
 
 def test_applications_listing_and_file_guards(repo):
-    apps = core.list_applications()
+    apps = core.list_applications()["folders"]
     assert [a["company"] for a in apps] == ["_Not employers/Sent to a friend", "Acme Energy"]
     acme = next(a for a in apps if a["company"] == "Acme Energy")
     assert acme["employer"] is True
@@ -180,6 +183,57 @@ def test_applications_listing_and_file_guards(repo):
         core.application_file("_Not employers/../Acme Energy", "Project Engineer.pdf")
     with pytest.raises(FileNotFoundError):
         core.application_file("Acme Energy", "missing.pdf")
+
+
+def test_the_tab_shows_where_each_application_stands(repo):
+    old = repo / "Applications" / "Old Clinic"
+    old.mkdir()
+    (old / "Resume (Old Clinic).pdf").write_bytes(b"%PDF-1.4 stub")
+    tracker.set_status("Acme Energy", "Project Engineer", status="applied", allow_new=True)
+    tracker.set_status("Faraway Health", "Charge Nurse", status="applied", allow_new=True)
+    listing = core.list_applications()
+    folders = {f["company"]: f for f in listing["folders"]}
+
+    [acme] = folders["Acme Energy"]["roles"]
+    assert (acme["role"], acme["status"], acme["filed"], acme["tracked"]) == (
+        "Project Engineer", "applied", True, True)
+    assert acme["digest"] == {"date": "2026-11-02", "n": 1, "score": 84}
+    [whole] = folders["Old Clinic"]["roles"]          # no role in its file names
+    assert (whole["role"], whole["status"], whole["tracked"]) == ("", None, False)
+    away = folders["Faraway Health"]                  # its folder is on another machine
+    assert away["on_disk"] is False and away["files"] == []
+    assert away["roles"][0]["status"] == "applied" and not away["roles"][0]["filed"]
+    assert folders["_Not employers/Sent to a friend"]["roles"] == []
+    assert listing["statuses"] == list(tracker.STATUSES) and not listing["problem"]
+
+
+def test_the_tab_changes_only_what_it_lists(repo):
+    listing = core.set_application_status("Acme Energy", "Project Engineer", status="applied")
+    acme = next(f for f in listing["folders"] if f["company"] == "Acme Energy")
+    assert acme["roles"][0]["status"] == "applied"
+    assert "- company: Acme Energy" in (repo / tracker.TRACKER).read_text(encoding="utf-8")
+    entry = next(e for e in core.read_digest("2026-11-02")["entries"] if e["n"] == 1)
+    assert entry["status"] == "applied"               # the digest shows it too
+    for company, role in (("Acme Energy", "Analyst"), ("Nowhere Inc", ""),
+                          ("_Not employers/Sent to a friend", ""), ("..", "")):
+        with pytest.raises(ValueError, match="lists no application"):
+            core.set_application_status(company, role, status="applied")
+
+
+def test_interview_prep_needs_a_filed_posting(repo):
+    """What the Interview prep button sends, a company and a job title, must
+    name a posting filed in an employer's folder."""
+    folder = repo / "Applications" / "Acme Energy"
+    (folder / "Project Engineer - posting.txt").write_text("posting", encoding="utf-8")
+    assert core.posting_path("Acme Energy", "Project Engineer") == str(
+        folder / "Project Engineer - posting.txt")
+    with pytest.raises(FileNotFoundError):
+        core.posting_path("Acme Energy", "Analyst")
+    for company, title in [("", "Project Engineer"), ("Acme Energy", ""), ("..", "x"),
+                           ("Acme Energy", "../../profile/feedback"),
+                           ("_Not employers/Sent to a friend", "Resume")]:
+        with pytest.raises(ValueError):
+            core.posting_path(company, title)
 
 
 def test_profile_files_are_an_allowlist(repo):
@@ -296,7 +350,7 @@ def test_the_checks_leave_the_keys_to_the_form(fresh):
 
 def test_runs_stream_output_and_check_their_arguments(repo, monkeypatch):
     runs = core.Runs()
-    assert [c["name"] for c in runs.commands()] == ["doctor", "applies", "fetch"]
+    assert [c["name"] for c in runs.commands()] == ["doctor", "applies", "fetch", "outcomes"]
     with pytest.raises(ValueError):
         runs.start("rm")
     with pytest.raises(ValueError):
@@ -410,7 +464,7 @@ def test_the_page_refuses_everyone_else(host, origin):
     assert core.refusal(host, origin)
 
 
-def _ask(app, method: str, path: str, headers: dict) -> int:
+def _ask(app, method: str, path: str, headers: dict, body: bytes = b"") -> int:
     """One request through the app, as uvicorn hands it over. Returns the status."""
     import asyncio
     scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
@@ -421,7 +475,7 @@ def _ask(app, method: str, path: str, headers: dict) -> int:
     sent = []
 
     async def receive():
-        return {"type": "http.request", "body": b"", "more_body": False}
+        return {"type": "http.request", "body": body, "more_body": False}
 
     async def send(message):
         sent.append(message)
@@ -442,3 +496,26 @@ def test_the_server_refuses_before_any_route_runs():
                 {**here, "origin": "http://127.0.0.1:8765"}) == 400
     assert _ask(server.app, "POST", "/api/runs/nosuch",
                 {**here, "origin": "https://attacker.example"}) == 403
+
+
+def test_a_status_goes_through_its_route(repo):
+    pytest.importorskip("fastapi")
+    import server
+    here = {"host": "127.0.0.1:8765", "content-type": "application/json"}
+    acme = {"company": "Acme Energy", "role": "Project Engineer"}
+
+    def put(change: dict, headers=here) -> int:
+        return _ask(server.app, "PUT", "/api/applications/status", headers,
+                    json.dumps(change).encode())
+
+    assert put({**acme, "status": "applied"}) == 200
+    for bad in ({**acme, "colour": "red"}, {**acme, "status": 3}, {**acme, "undo": "yes"},
+                {"status": "applied"}, {**acme, "status": "applied"},
+                {**acme, "status": "heard back", "date": "2999-01-01"}):
+        assert put(bad) == 400, bad
+    assert put({**acme, "undo": False, "note": "a recruiter wrote"}) == 200
+    assert put({**acme, "status": "rejected"},
+               {**here, "origin": "https://attacker.example"}) == 403
+    [row] = next(f for f in core.list_applications()["folders"]
+                 if f["company"] == "Acme Energy")["roles"]
+    assert (row["status"], row["note"]) == ("applied", "a recruiter wrote")

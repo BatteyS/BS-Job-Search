@@ -64,6 +64,15 @@ Read in this order:
 - `profile/profile.md` — in full. It is the user's own account of who they are, what
   they want, and how to judge a role. **The rubric it states is the scoring rubric.**
 - `profile/feedback.md` — past verdicts; these are the calibration signal
+- what came of the applications the user sent, which they record in the page's
+  Applications tab (`profile/applications.yaml`):
+
+  ```bash
+  python scripts/digest_applies.py --outcomes
+  ```
+
+  It groups them by outcome, each beside what its digest said when it was scored. If it
+  says the file does not load, tell the user and score this run without outcomes.
 - `profile/clusters.yaml` — `scoring.min_score`, and each active cluster's `min_score`,
   `scoring_note`, and `default_resume`
 - `data/candidates-YYYY-MM-DD.json`
@@ -95,6 +104,22 @@ still score high when it matches what the profile says matters.
 
 Apply `profile/feedback.md`'s standing corrections on every run, as that file says. They
 are rules drawn from verdicts the user actually gave.
+
+**Outcomes calibrate reach, not taste.** `feedback.md` says what the user wanted; the
+outcomes say how employers answered.
+
+- **Went forward**: a person answered with interest, so the resume cleared that
+  employer's screen. A candidate like one of these, in the kind of work, the seniority,
+  and the kind of employer, is within reach: credit it.
+- **Screened out**: rejected before anyone answered, marked no response, or no word in 30
+  days. When three or more share a trait, such as a stated minimum above the user's
+  experience, a household-name employer, or a field the resume does not show, score that
+  trait down. One outcome alone is noise: plenty of employers answer no one.
+- **Waiting** is not evidence yet.
+- **Withdrawn** is the user's own verdict, and its note weighs like a skip reason. How
+  far it got first still says whether employers answered.
+- Outcomes never override the rubric in `profile.md` or a standing correction. Where they
+  seem to contradict one, say so in the digest, and offer a correction in Step 7.
 
 If a candidate's cluster has a `scoring_note` in `clusters.yaml`, apply it as well.
 
@@ -132,6 +157,7 @@ already exists, append a new run section rather than overwriting it.
 
 **Clusters:** clinical-informatics, cardiac-critical-care
 **Scanned:** 80 boards · 6,384 postings · 33 candidates after filters · 12 scored ≥60
+**Outcomes so far:** 6 tracked · 2 went forward · 3 screened out · 1 waiting
 
 > Mark each entry `apply` or `skip — reason`; these verdicts calibrate the next run's
 > scoring. Tick `cover letter` as well on any apply that should get one.
@@ -155,6 +181,9 @@ Rules:
   each `apply` and a letter for each `cover letter`.
 - **Always state the metro**, and show the penalty for anything outside the user's top
   metro (the one with penalty 0). A role at 80 is only useful if it's obvious where it is.
+- **Outcomes so far** takes the counts from `--outcomes`; leave the line out while nothing
+  is tracked. When outcomes moved any score, add one line under it saying which way and
+  why: "Scored roles demanding 5+ years down: three such applications got no answer."
 - If `duplicate_count` > 1, note "N identical reqs posted".
 - Show comp only when disclosed. Never guess or estimate it.
 - If `stats.clipped` > 0, say so — the candidate cap was hit and something was dropped.
@@ -170,19 +199,22 @@ Rules:
 
 ## Step 6 — reconcile applications
 
-List `Applications/`, skipping folders whose names start with `_`: those hold resumes
-sent to people or recruiters rather than employers (`_Not employers/`). Any other folder
-there means the user has applied to **that company**, not
-necessarily to this role — applying to a second role at the same employer is normal and
-often sensible. So annotate rather than exclude:
+Two records say where the user has applied. `profile/applications.yaml`, which the
+`--outcomes` output from Step 3 lists, reaches every machine the user works on. The
+folders under `Applications/` stay on the machine that filed them; skip those whose names
+start with `_`, which hold resumes sent to people or recruiters rather than employers
+(`_Not employers/`). An employer in either means the user has applied to **that
+company**, not necessarily to this role — applying to a second role at the same employer
+is normal and often sensible. So annotate rather than exclude:
 
-- If the folder contains files matching this specific role, mark it **already applied**
-  and drop it out of the ranking.
-- If the folder exists but the role looks different, keep it ranked and add a one-line
-  note: "previously applied to <company>" — useful context for a referral or follow-up.
+- If the tracker or the folder has this specific role, mark it **already applied** and
+  drop it out of the ranking.
+- If the employer is there but the role looks different, keep it ranked and add a
+  one-line note with what came of the earlier one: "previously applied to <company>:
+  heard back" — useful context for a referral or follow-up.
 
-Folder names won't always match a digest's spelling of the employer ("Black and Veatch"
-vs "Black & Veatch"), so compare names loosely.
+Names won't always match a digest's spelling of the employer ("Black and Veatch" vs
+"Black & Veatch"), so compare them loosely.
 
 ## Step 7 — offer to record verdicts
 
@@ -196,17 +228,25 @@ Once they have marked it, the marks become a feedback.md section in one command:
 python scripts/digest_applies.py --date YYYY-MM-DD --verdicts
 ```
 
-It ends with what to settle first: skips with no reason, and unmarked entries whose resume
-is already filed, which were probably applied to. Show the section, settle those with the
-user, add any pattern worth naming above the tables, and append it once they agree. The
-calibration loop stalled for months on this step: two digests went unmarked after the
-first, and feedback.md stopped learning.
+It ends with what to settle first: skips with no reason, marks the tracker contradicts,
+and unmarked entries whose resume is already filed, which were probably applied to. Show
+the section, settle those with the user, add any pattern worth naming above the tables,
+and append it once they agree. The calibration loop stalled for months on this step: two
+digests went unmarked after the first, and feedback.md stopped learning.
+
+Outcomes stay in `profile/applications.yaml`, where the user keeps them current, and are
+read fresh on every scan. A pattern they showed in Step 4 reaches `feedback.md` only as a
+standing correction the user agrees to, offered the same way. If `--outcomes` listed
+roles with no status yet, say how many, and that the page's Applications tab records
+them: the next scan learns from an application only once its outcome is there.
 
 ---
 
 ## Notes
 
 - Never edit `profile/profile.md`. It's human-maintained ground truth.
+- Never write `profile/applications.yaml`. It is the user's own record of what they sent
+  and what came back, set in the page's Applications tab.
 - Never widen filters to produce more results. A thin digest means the market is thin this
   week, or board coverage needs work — fix coverage, not the filters. Roughly half of
   established employers sit on ATS platforms we cannot read from Python (Oracle HCM, Taleo,

@@ -13,5 +13,10 @@
     {"company": "Sierra Crest Health",
      "title": "Clinical Informatics Nurse, Inpatient Documentation",
      "letter": "letter-sierra-crest.json"}
+  ],
+  "preps": [
+    {"company": "Sierra Crest Health",
+     "title": "Clinical Informatics Nurse, Inpatient Documentation",
+     "prep": "prep-sierra-crest.json"}
   ]
 }

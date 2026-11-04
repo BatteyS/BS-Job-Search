@@ -212,6 +212,21 @@ def check_profile() -> dict:
     report("ok" if os.path.exists(feedback) else "optional", rel(feedback),
            "" if os.path.exists(feedback) else "starts empty; your digest verdicts go here")
 
+    import tracker
+    tracked = os.path.join(ROOT, tracker.TRACKER)
+    if not os.path.exists(tracked):
+        report("optional", rel(tracked), "the page's Applications tab writes it once you "
+               "record where an application stands")
+    else:
+        t = tracker.load(tracked)
+        broken = [e for e in t.entries if e.problem]
+        if t.problem:
+            report("MISSING", rel(tracked), t.problem)
+        else:
+            n = len(t.entries)
+            report("ok", rel(tracked), f"{n} application{'' if n == 1 else 's'}" + (
+                f"; {len(broken)} to fix by hand, first: {broken[0].problem}" if broken else ""))
+
     clusters = os.path.join(ROOT, "profile/clusters.yaml")
     if not os.path.exists(clusters):
         report("MISSING", rel(clusters), "what roles to look for", setup)

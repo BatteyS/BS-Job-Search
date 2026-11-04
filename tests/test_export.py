@@ -9,14 +9,16 @@ import pytest
 from helpers import run
 import export_template as x
 
-PRIVATE = ["profile/profile.md", "profile/filters.yaml", "content/master.md",
+PRIVATE = ["profile/profile.md", "profile/filters.yaml", "profile/applications.yaml",
+           "content/master.md",
            "content/story.md", "content/contact.local.md", "CLAUDE.local.md",
            "digests/2026-08-12.md", "data/seen.sqlite", "sources/companies.yaml",
            "sources/seed_companies.txt", "sources/adzuna.local.yaml",
            "Applications/Acme/Analyst.pdf", "Resume/.vscode/settings.json"]
 SHARED = ["scripts/fetch_jobs.py", ".claude/skills/setup/SKILL.md", "presets/metros.yaml",
           "examples/nurse-sacramento/master.md", "content/story.example.md", "LICENSE",
-          "Resume/LaTeX/template.tex", "tests/test_export.py"]
+          "Resume/LaTeX/template.tex", "tests/test_export.py", "scripts/tracker.py",
+          "examples/nurse-sacramento/demo/applications.yaml"]
 
 
 @pytest.mark.parametrize("path", PRIVATE)
