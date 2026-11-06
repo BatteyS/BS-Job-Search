@@ -329,3 +329,59 @@ def test_outcomes_wait_for_a_file_that_does_not_load(copy, capsys):
     assert o["problem"] and o["applications"] == []
     assert digest_applies.print_outcomes(o) == 1
     assert "without outcomes" in capsys.readouterr().out
+
+
+# ------------------------------------------------- changes made against a view
+
+def seen(**kw):
+    """A change as the page makes one, for a role the Applications tab lists."""
+    return change(allow_new=True, **kw)
+
+
+def test_a_change_against_the_last_line_seen_is_written(root):
+    seen(status="applied", date="2026-11-01")
+    seen(status="heard back", expect_last="2026-11-01 applied")
+    assert tracker.last_line(tracker.load().entries[0]) == f"{TODAY} heard back"
+
+
+def test_a_change_against_an_out_of_date_view_is_refused_and_writes_nothing(root):
+    seen(status="applied", date="2026-11-01")
+    seen(status="heard back", date="2026-11-02")          # elsewhere, since
+    before = text(root)
+    for kw in ({"status": "rejected"}, {"undo": True}, {"date": "2026-11-03"}):
+        with pytest.raises(tracker.Conflict) as refused:
+            seen(expect_last="2026-11-01 applied", **kw)
+        assert refused.value.current == {"last": "2026-11-02 heard back", "note": ""}
+        assert "now 2026-11-02 heard back" in str(refused.value)
+        assert isinstance(refused.value, ValueError)            # old callers still refuse
+    assert text(root) == before
+
+
+def test_a_new_application_expects_no_line(root):
+    seen(status="applied", expect_last="")
+    with pytest.raises(tracker.Conflict, match="now .* applied"):
+        seen(status="heard back", expect_last="")
+
+
+def test_the_same_change_sent_twice_is_done_not_refused(root):
+    seen(status="applied", date="2026-11-01")
+    seen(status="heard back", date="2026-11-02", expect_last="2026-11-01 applied")
+    before = text(root)
+    again = seen(status="heard back", date="2026-11-02", expect_last="2026-11-01 applied")
+    assert again.status == "heard back" and text(root) == before
+
+
+def test_a_note_changed_since_is_refused_unless_it_already_says_the_same(root):
+    seen(status="applied", note="sent by email")
+    seen(note="a recruiter called")                          # elsewhere, since
+    with pytest.raises(tracker.Conflict) as refused:
+        seen(note="follow up Friday", expect_note="sent by email")
+    assert refused.value.current["note"] == "a recruiter called"
+    assert seen(note="a recruiter called", expect_note="sent by email").note == "a recruiter called"
+    assert seen(note="follow up Friday", expect_note="a recruiter called").note == "follow up Friday"
+
+
+def test_without_what_was_seen_a_change_works_as_before(root):
+    seen(status="applied")
+    seen(status="heard back")
+    assert tracker.load().entries[0].status == "heard back"

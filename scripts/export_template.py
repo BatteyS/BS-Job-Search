@@ -16,7 +16,10 @@ personal data:
   * email addresses, apart from example.com ones;
   * phone numbers, apart from the 555 numbers in the examples;
   * the name, email, phone, and links in content/contact.local.md, and the
-    employers and schools in content/master.md, when those files exist.
+    employers and schools in content/master.md, when those files exist;
+  * this Mac's tailnet address (<mac>.<tailnet>.ts.net), each of its two
+    names, and the Tailscale login, from data/ui-remote.json, which
+    ui/phone.py writes when phone access is set up.
 
 A hit stops the export and names the file and line. `--check` runs the same
 check on this copy without writing anything, untracked engine files included;
@@ -27,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import json
 import os
 import re
 import shutil
@@ -49,6 +53,10 @@ ENGINE = [
     "sources/adzuna.example.yaml", "sources/usajobs.example.yaml",
     "Resume/LaTeX/template.tex", "Resume/LaTeX/letter.tex",
 ]
+
+# Where ui/phone.py records phone access (core.REMOTE), per machine and never
+# tracked: this Mac's tailnet address and the Tailscale login the page answers.
+REMOTE = "data/ui-remote.json"
 
 # A line that may name a person: the copyright holder.
 ALLOWED_LINES = {"LICENSE": re.compile(r"^Copyright \(c\) ")}
@@ -98,6 +106,31 @@ def personal_terms() -> list[tuple[str, re.Pattern]]:
                 kind = e.section.lower()
                 found.append((f"{'an' if kind[:1] in 'aeiou' else 'a'} {kind} entry in "
                               "master.md", e.employer))
+    remote = os.path.join(ROOT, REMOTE)
+    if os.path.exists(remote):
+        try:
+            with open(remote, encoding="utf-8") as fh:
+                access = json.load(fh)
+        except ValueError:
+            access = None
+        if not isinstance(access, dict):
+            raise SystemExit(f"{REMOTE} cannot be read, so the check cannot look for this "
+                             "Mac's tailnet address. Set phone access up again with "
+                             "`sh install.sh --phone`, or turn it off with "
+                             "`uv run python ui/phone.py disable`.")
+        # Only this Mac's address and its names. A pattern for every *.ts.net
+        # name would also stop the made-up one the phone tests use.
+        host = str(access.get("host") or "").strip()
+        if host:
+            found.append(("your Mac's address on your tailnet", host))
+            mac, _, rest = host.partition(".")
+            for label, part in (("your Mac's name on your tailnet", mac),
+                                ("your tailnet's name", rest.partition(".")[0])):
+                if len(part) >= 3:
+                    found.append((label, part))
+        login = str(access.get("login") or "").strip()
+        if login:
+            found.append(("your Tailscale login", login))
     return [(label, re.compile(rf"(?<!\w){re.escape(term)}(?!\w)", re.I))
             for label, term in found]
 

@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 try:
     import uvicorn
-    from fastapi import FastAPI, HTTPException
+    from fastapi import FastAPI, HTTPException, Request
     from fastapi.responses import (FileResponse, JSONResponse, PlainTextResponse, Response,
                                    StreamingResponse)
 except ImportError:
@@ -75,6 +75,11 @@ app.add_middleware(OnlyThisPage)
 def _or_404(fn, *args, **kwargs):
     try:
         return fn(*args, **kwargs)
+    except core.tracker.Conflict as exc:
+        # A change made against an out-of-date view: what is there now, to show.
+        raise HTTPException(409, {"message": str(exc), "current": exc.current})
+    except core.Stop as exc:
+        raise HTTPException(409, str(exc))
     except (FileNotFoundError, KeyError) as exc:
         raise HTTPException(404, str(exc))
     except ValueError as exc:
@@ -87,9 +92,45 @@ def _or_404(fn, *args, **kwargs):
 FRESH = {"Cache-Control": "no-cache"}
 
 
+# What the page may load: its own files and routes alone. Nothing in it is
+# inline, so a script or a style that reached a digest or a profile file would
+# not run, on the Mac or from a phone's copy of the page.
+CSP = ("default-src 'self'; img-src 'self' data:; base-uri 'self'; form-action 'self'; "
+       "frame-ancestors 'none'")
+
+
+def page_html() -> str:
+    """index.html with this copy's version in its title and header
+    (core.version), so a tab, a phone's copy, or a screenshot says which
+    version it shows."""
+    import html
+    with open(os.path.join(HERE, "index.html"), encoding="utf-8") as fh:
+        page = fh.read()
+    v = core.version()
+    text = core.version_text(v)
+    if not text:
+        return page
+    title = f"BS Job Search {v['label'] or v['commit']}"
+    shown = html.escape(text)
+    about = html.escape(f"Commit {v['commit']} of {v['date']}"
+                        + (", with code edited since" if v["changed"] else ""), quote=True)
+    page = page.replace("<title>BS Job Search</title>", f"<title>{html.escape(title)}</title>", 1)
+    return page.replace('<span id="version" class="version"></span>',
+                        f'<span id="version" class="version" title="{about}">{shown}</span>', 1)
+
+
 @app.get("/")
-def index():
-    return FileResponse(os.path.join(HERE, "index.html"), headers=FRESH)
+def index(request: Request):
+    """The page, tagged by what it holds: the phone's copy (ui/sw.js) asks
+    again each open and reloads only when the tag changes."""
+    import hashlib
+    body = page_html().encode("utf-8")
+    tag = f'"{hashlib.sha256(body).hexdigest()[:24]}"'
+    headers = {**FRESH, "Content-Security-Policy": CSP, "ETag": tag}
+    held = [t.strip().removeprefix("W/") for t in request.headers.get("if-none-match", "").split(",")]
+    if tag in held:
+        return Response(status_code=304, headers=headers)
+    return Response(body, media_type="text/html; charset=utf-8", headers=headers)
 
 
 @app.get("/app.js")
@@ -100,6 +141,13 @@ def app_js():
 @app.get("/style.css")
 def style_css():
     return FileResponse(os.path.join(HERE, "style.css"), media_type="text/css", headers=FRESH)
+
+
+@app.get("/sw.js")
+def sw_js():
+    """The phone's copy of the page (ui/sw.js): app.js registers it only off
+    the Mac, and it keeps what /api/snapshot sends."""
+    return FileResponse(os.path.join(HERE, "sw.js"), media_type="text/javascript", headers=FRESH)
 
 
 # The page as an app on a phone's home screen: its manifest, and the icon
@@ -130,7 +178,20 @@ def health():
     one it loaded from, and `restart` says whether it can restart itself."""
     return {"app": core.APP_NAME, "root": core.ROOT, "started": core.STARTED,
             "restart": core.launcher() is not None or core.by_launchd(),
-            "launchd": core.by_launchd(), "working": runs.working()}
+            "launchd": core.by_launchd(), "working": runs.working(), "git": core.git_busy(),
+            "version": core.version_text()}
+
+
+@app.get("/api/snapshot")
+def snapshot(request: Request):
+    """Everything a phone keeps for reading while the Mac is away (ui/sw.js):
+    core.snapshot(). Its tag is the ETag, so a copy that is current costs a 304."""
+    snap = core.snapshot()
+    tag = f'"{snap["etag"]}"'
+    held = [t.strip().removeprefix("W/") for t in request.headers.get("if-none-match", "").split(",")]
+    if tag in held:
+        return Response(status_code=304, headers={"ETag": tag})
+    return JSONResponse(snap, headers={"ETag": tag, **FRESH})
 
 
 @app.post("/api/restart")
@@ -176,16 +237,31 @@ def digest(date: str):
 
 @app.put("/api/digests/{date}/entries/{n}")
 def mark(date: str, n: int, marks: dict):
-    allowed = {"apply", "skip", "letter", "skip_reason"}
-    bad = set(marks) - allowed
+    """Tick or untick one entry's boxes. `expect` (what the page saw in the boxes
+    it changes) and `entry` ({company, title}, the role it means) make a change
+    made against an out-of-date view answer 409 with what is there now."""
+    bad = set(marks) - {*_MARK_TYPES, "expect", "entry"}
     if bad:
         raise HTTPException(400, f"unknown marks: {sorted(bad)}")
-    for key in ("apply", "skip", "letter"):
-        if key in marks and not isinstance(marks[key], bool):
-            raise HTTPException(400, f"{key} must be true or false")
-    if "skip_reason" in marks and not isinstance(marks["skip_reason"], str):
-        raise HTTPException(400, "skip_reason must be text")
+    _check_marks(marks)
+    if "expect" in marks:
+        if not isinstance(marks["expect"], dict) or set(marks["expect"]) - set(_MARK_TYPES):
+            raise HTTPException(400, f"expect holds only {', '.join(_MARK_TYPES)}")
+        _check_marks(marks["expect"], "expected ")
+    if "entry" in marks and not (isinstance(marks["entry"], dict)
+                                 and set(marks["entry"]) == {"company", "title"}
+                                 and all(isinstance(v, str) for v in marks["entry"].values())):
+        raise HTTPException(400, "entry is {company, title}, as text")
     return _or_404(core.mark_entry, date, n, **marks)
+
+
+_MARK_TYPES = {"apply": bool, "skip": bool, "letter": bool, "skip_reason": str}
+
+
+def _check_marks(marks: dict, said: str = "") -> None:
+    for key, kind in _MARK_TYPES.items():
+        if key in marks and not isinstance(marks[key], kind):
+            raise HTTPException(400, f"{said}{key} must be {'true or false' if kind is bool else 'text'}")
 
 
 @app.get("/api/digests/{date}/verdicts")
@@ -208,11 +284,14 @@ def applications():
 @app.put("/api/applications/status")
 def application_status(change: dict):
     """Change where one application stands, in profile/applications.yaml: a new
-    status, the date of the last one, the note, or undo the last change."""
-    bad = set(change) - {"company", "role", "status", "date", "note", "undo"}
+    status, the date of the last one, the note, or undo the last change.
+    `expect_last` (the last history line the page saw) and `expect_note` make a
+    change made against an out-of-date view answer 409 with what is there now."""
+    bad = set(change) - {"company", "role", "status", "date", "note", "undo",
+                         "expect_last", "expect_note"}
     if bad:
         raise HTTPException(400, f"unknown fields: {sorted(bad)}")
-    for key in ("company", "role", "status", "date", "note"):
+    for key in ("company", "role", "status", "date", "note", "expect_last", "expect_note"):
         if key in change and not isinstance(change[key], str):
             raise HTTPException(400, f"{key} must be text")
     if "undo" in change and not isinstance(change["undo"], bool):

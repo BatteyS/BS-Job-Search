@@ -24,6 +24,9 @@ header {
   border-bottom: 1px solid var(--line); background: var(--panel);
 }
 header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+/* Which version this copy runs (core.version), filled in by the server. */
+header h1 .version { margin-left: 6px; font-size: 12px; font-weight: 400; color: var(--muted); white-space: nowrap; }
+header h1 .version:empty { display: none; }
 nav button {
   background: none; border: none; color: var(--muted); font: inherit; padding: 6px 10px;
   cursor: pointer; border-radius: 6px;
@@ -340,3 +343,15 @@ details.notes summary { cursor: pointer; color: var(--accent); }
 .run .filed:empty { display: none; }
 .run .filed { margin-top: 10px; }
 .run .filed a { overflow-wrap: anywhere; }
+
+/* Changes made on the phone that the Mac has not taken yet (app.js, outbox). */
+.outbox { padding: 8px 20px; font-size: 13px; background: var(--chip); border-bottom: 1px solid var(--warn); }
+.outbox-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 6px; }
+.outbox-item { padding: 4px 0; }
+.outbox-item.conflict { color: var(--bad); }
+.outbox-item .toolbar { margin: 4px 0 0; }
+.entry.waiting { border-style: dashed; }
+
+/* This phone, in Setup (app.js, thisPhoneView). */
+.choice { display: flex; gap: 8px; align-items: flex-start; margin: 6px 0; font-size: 14px; cursor: pointer; }
+.choice input { margin-top: 3px; }

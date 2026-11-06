@@ -211,17 +211,30 @@ sign in to the Tailscale app,
 open that address in Safari (Chrome on Android), and choose **Share**, then **Add to Home
 Screen**. The icon opens the page full screen, like an app, laid out for a phone.
 
-Two things to know:
+Three things to know:
 
-- **The Mac has to be awake.** A Mac sleeps on its own once its display turns off, even
-  plugged in, and a laptop also sleeps with its lid closed; then the phone cannot reach
-  it. Keep it plugged in and turn on **Prevent automatic sleeping on power adapter when
-  the display is off**, in System Settings, Battery, Options (on a desktop Mac, **Prevent
-  automatic sleeping when the display is off**). After a restart, someone has to log in on
-  the Mac first. Nothing here changes these settings for you.
-- **If the icon opens to an error**, the phone could not reach the Mac. Wake the Mac,
-  check that Tailscale is on, on the phone, then swipe Job Search away in the phone's app
-  switcher and open it again.
+- **The Mac has to be awake for anything to change.** A Mac sleeps on its own once its
+  display turns off, even plugged in, and a laptop also sleeps with its lid closed; then
+  the phone cannot reach it. Keep it plugged in and turn on **Prevent automatic sleeping
+  on power adapter when the display is off**, in System Settings, Battery, Options (on a
+  desktop Mac, **Prevent automatic sleeping when the display is off**). After a restart,
+  someone has to log in on the Mac first. Nothing here changes these settings for you.
+- **While the Mac is away, the icon still opens.** The phone keeps a copy of the page
+  from its last visit: the digests, the applications and the profile files are there to
+  read, and a banner says when the copy is from. A tick or a status change waits on the
+  phone, counted in the header, and goes to the Mac once it answers; if the Mac's file
+  changed meanwhile (a box ticked there, a scan), the page shows both and asks which to
+  keep. Keep the app open for that: on an iPhone nothing is sent while it is closed, and
+  removing the icon from the home screen loses what has not been sent. Scans, resumes,
+  letters and the Runs and Setup tabs need the Mac. Under **This phone** in the Setup tab,
+  opened on the phone, you choose what the copy holds: your profile files (kept unless
+  you turn them off) and documents filed in the last 30 days (kept only if you turn them
+  on, since resumes and letters carry your contact details). It never holds your keys.
+  **Forget this phone's copy** there deletes it all and stops keeping one. A filed PDF
+  has a **Share** button on the phone, for the whole PDF: Quick Look, Files, Print.
+- **If the icon opens to an error**, the phone has no copy yet and could not reach the
+  Mac: the first open needs the Mac. Wake it, check that Tailscale is on, on the phone,
+  then swipe Job Search away in the phone's app switcher and open it again.
 
 [How phone access works](#how-phone-access-works) has the rest, including how to turn it
 off.

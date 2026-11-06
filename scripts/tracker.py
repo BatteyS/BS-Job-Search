@@ -313,9 +313,40 @@ def _date(value: str, after: str | None, today: dt.date) -> str:
 _lock = threading.Lock()
 
 
+class Conflict(ValueError):
+    """A change made against a view of the file that is out of date: what it
+    expected is no longer there. `current` holds what is, for the page to show.
+    A ValueError still, so a caller that knows nothing of it refuses as before."""
+
+    def __init__(self, message: str, current: dict):
+        super().__init__(message)
+        self.current = current
+
+
+def last_line(e: Entry) -> str:
+    """An entry's last history line as one string, "YYYY-MM-DD status", or ""
+    with none: what a change sends as `expect_last`."""
+    return f"{e.history[-1][0]} {e.history[-1][1]}" if e.history else ""
+
+
+def _already(e: Entry, status: str | None, date: str | None, note: str | None,
+             undo: bool) -> bool:
+    """Whether the change asked for already holds, so sending it again is done."""
+    if undo:
+        return False
+    if status is not None:
+        wanted = " ".join(str(status).lower().split())
+        if e.status != wanted or (date is not None and e.since != date):
+            return False
+    elif date is not None and e.since != date:
+        return False
+    return note is None or e.note == clean_note(note)
+
+
 def set_status(company: str, role: str = "", *, status: str | None = None,
                date: str | None = None, note: str | None = None, undo: bool = False,
-               allow_new: bool = False, today: dt.date | None = None) -> Entry | None:
+               allow_new: bool = False, today: dt.date | None = None,
+               expect_last: str | None = None, expect_note: str | None = None) -> Entry | None:
     """Change one application and save the file. Returns its entry as it now
     stands, or None once undo has left nothing in it.
 
@@ -323,7 +354,12 @@ def set_status(company: str, role: str = "", *, status: str | None = None,
     line, `note` replaces the note ("" clears it), and `undo` removes the last
     line. No date may be after today or before the line it follows.
     `allow_new` lets the call start an entry the file does not hold yet: the
-    page passes it for the roles it found under Applications/."""
+    page passes it for the roles it found under Applications/.
+
+    `expect_last` is the last history line the caller saw (last_line(), ""
+    for none), and `expect_note` the note it saw. When either no longer holds,
+    the change raises Conflict and nothing is written, unless what it asks for
+    already holds, which is then done: the same change sent twice."""
     today = today or dt.date.today()
     if undo and (status is not None or date is not None or note is not None):
         raise ValueError("undo goes alone")
@@ -342,6 +378,16 @@ def set_status(company: str, role: str = "", *, status: str | None = None,
         if e.problem:
             raise ValueError(f"{label(company, role)} cannot change until its entry in "
                              f"{TRACKER} is fixed by hand: {e.problem}")
+        moved = expect_last is not None and last_line(e) != expect_last.strip()
+        renoted = expect_note is not None and e.note != clean_note(expect_note)
+        if moved or renoted:
+            if _already(e, status, date, note, undo):
+                return e if (e.history or e.note or e.extra) else None
+            was = ((f"its last change is now {last_line(e)}" if e.history else "it has no status now")
+                   if moved else "its note was changed")
+            raise Conflict(f"{label(company, role)} changed since this was shown: {was}. "
+                           "Look again, then make the change.",
+                           {"last": last_line(e), "note": e.note})
         if undo:
             if not e.history:
                 raise ValueError("there is no change to undo")

@@ -44,7 +44,10 @@ import glob
 import json
 import os
 import re
+import stat
 import sys
+import tempfile
+import threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tracker  # noqa: E402
@@ -269,57 +272,132 @@ def parse(path: str) -> dict:
     }
 
 
+MARKS = ("apply", "skip", "letter", "skip_reason")
+OPPOSED = {"apply": ("skip",), "letter": ("skip",), "skip": ("apply", "letter")}
+_lock = threading.Lock()      # one read-modify-write of a digest at a time
+
+
 def write_marks(path: str, n: int, *, apply: bool | None = None, skip: bool | None = None,
-                letter: bool | None = None, skip_reason: str | None = None) -> None:
+                letter: bool | None = None, skip_reason: str | None = None,
+                expect: dict | None = None, entry: dict | None = None) -> bool:
     """Set entry `n`'s boxes in place, touching nothing else in the file. None
     leaves a box as it is. A ticked letter on an entry written before the box
     existed adds the line. Unticking skip clears its reason unless one is given,
-    so a stale reason never counts against a role later."""
-    text = open(path, encoding="utf-8").read()
-    lines = text.split("\n")
+    so a stale reason never counts against a role later.
 
-    start, end = None, len(lines)
-    for i, line in enumerate(lines):
-        m = RE_HEADING.match(line)
+    `entry` ({company, title}) is the role the caller means: when entry `n` now
+    names another, as after a scan added a run, it raises tracker.Conflict.
+    `expect` holds what the caller saw in the boxes. A box already at its new
+    value is left; one still as expected is written; one at neither is a
+    Conflict, with nothing written. Boxes are judged apart, so a letter ticked
+    elsewhere does not stop an apply, except that a box ticked here cannot
+    stand beside one it contradicts ticked elsewhere since (OPPOSED): skip
+    against apply or a letter.
+
+    The file is written whole through a temporary file beside it, under a lock.
+    Returns whether anything changed."""
+    target = {"apply": apply, "skip": skip, "letter": letter, "skip_reason": skip_reason}
+    with _lock:
+        text = open(path, encoding="utf-8").read()
+        lines = text.split("\n")
+
+        start, end = None, len(lines)
+        for i, line in enumerate(lines):
+            m = RE_HEADING.match(line)
+            if start is None:
+                if m and int(m.group(1)) == n:
+                    start = i
+            elif m or line.startswith("## "):
+                end = i
+                break
         if start is None:
-            if m and int(m.group(1)) == n:
-                start = i
-        elif m or line.startswith("## "):
-            end = i
-            break
-    if start is None:
-        raise ValueError(f"no entry #{n} in {os.path.relpath(path, ROOT)}")
+            raise ValueError(f"no entry #{n} in {os.path.relpath(path, ROOT)}")
 
-    seen: set[str] = set()
-    last_box = start
-    for i in range(start + 1, end):
-        m = RE_CHECKBOX.match(lines[i])
-        if not m:
-            continue
-        box = m.group(2).lower()
-        key = "letter" if box.startswith("cover") else box
-        seen.add(key)
-        last_box = i
-        ticked = m.group(1).lower() == "x"
-        if key == "skip":
-            if skip is None and skip_reason is None:
+        now = {"apply": False, "skip": False, "letter": False, "skip_reason": ""}
+        boxes = {}
+        for i in range(start + 1, end):
+            m = RE_CHECKBOX.match(lines[i])
+            if not m:
                 continue
-            if skip is not None:
-                ticked = skip
-            current = re.search(r"reason\s*:\s*(.*?)\s*$", lines[i], re.I)
-            reason = skip_reason if skip_reason is not None else (
-                current.group(1) if current and ticked else "")
-            lines[i] = (f"- [{'x' if ticked else ' '}] skip {EM_DASH} reason:"
-                        + (f" {reason.strip()}" if reason.strip() else ""))
-        else:
-            value = apply if key == "apply" else letter
-            if value is not None:
-                lines[i] = re.sub(r"\[[ xX]\]", "[x]" if value else "[ ]", lines[i], count=1)
-    if "letter" not in seen and letter:
-        lines.insert(last_box + 1, "- [x] cover letter")
+            box = m.group(2).lower()
+            key = "letter" if box.startswith("cover") else box
+            boxes[key] = i
+            now[key] = m.group(1).lower() == "x"
+            if key == "skip":
+                reason = re.search(r"reason\s*:\s*(.*?)\s*$", lines[i], re.I)
+                now["skip_reason"] = reason.group(1) if reason else ""
 
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write("\n".join(lines))
+        if entry is not None:
+            company, title = split_heading(RE_HEADING.match(lines[start]).group(2))[:2]
+            if (norm_company(company), title.strip().casefold()) != (
+                    norm_company(str(entry.get("company", ""))),
+                    str(entry.get("title", "")).strip().casefold()):
+                raise tracker.Conflict(
+                    f"entry #{n} is now {company.strip()} {EM_DASH} {title.strip()}, not the role "
+                    "this was ticked for: the digest changed. Look again, then tick it.",
+                    {"company": company.strip(), "title": title.strip(), **now})
+        if expect:
+            clashes = [k for k in MARKS if target[k] is not None and k in expect
+                       and _norm_mark(now[k]) != _norm_mark(target[k])
+                       and _norm_mark(now[k]) != _norm_mark(expect[k])]
+            # A verdict ticked here cannot stand beside one ticked elsewhere
+            # since: skip against apply or a letter.
+            for k, against in OPPOSED.items():
+                if target[k] is True and not now[k]:
+                    clashes += [o for o in against if o in expect and now[o]
+                                and not _norm_mark(expect[o]) and target[o] is not False]
+            if clashes:
+                said = ", ".join(f"{k.replace('_', ' ')} is {_said(now[k])}" for k in clashes)
+                raise tracker.Conflict(f"entry #{n} changed since this was shown: {said} now. "
+                                       "Look again, then tick it.", dict(now))
+
+        seen = set(boxes)
+        last_box = max(boxes.values(), default=start)
+        for key, i in boxes.items():
+            ticked = now[key]
+            if key == "skip":
+                if skip is None and skip_reason is None:
+                    continue
+                if skip is not None:
+                    ticked = skip
+                reason = skip_reason if skip_reason is not None else (
+                    now["skip_reason"] if ticked else "")
+                lines[i] = (f"- [{'x' if ticked else ' '}] skip {EM_DASH} reason:"
+                            + (f" {reason.strip()}" if reason.strip() else ""))
+            else:
+                value = apply if key == "apply" else letter
+                if value is not None:
+                    lines[i] = re.sub(r"\[[ xX]\]", "[x]" if value else "[ ]", lines[i], count=1)
+        if "letter" not in seen and letter:
+            lines.insert(last_box + 1, "- [x] cover letter")
+
+        out = "\n".join(lines)
+        if out == text:
+            return False
+        folder = os.path.dirname(path)
+        mode = stat.S_IMODE(os.stat(path).st_mode)
+        fd, tmp = tempfile.mkstemp(prefix=".digest-", suffix=".md", dir=folder)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(out)
+            os.chmod(tmp, mode)
+            os.replace(tmp, path)
+        except BaseException:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+            raise
+        return True
+
+
+def _norm_mark(value) -> object:
+    """A box's value as compared: a reason by its words, a box as true or false."""
+    return " ".join(value.split()) if isinstance(value, str) else bool(value)
+
+
+def _said(value) -> str:
+    if isinstance(value, str):
+        return f"“{value}”" if value else "empty"
+    return "ticked" if value else "not ticked"
 
 
 def verdicts(result: dict) -> str:

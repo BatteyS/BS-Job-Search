@@ -646,3 +646,233 @@ def test_the_launcher_and_installer_are_plain_sh():
             if path:
                 r = subprocess.run([path, "-n", os.path.join(ROOT, name)], capture_output=True, text=True)
                 assert r.returncode == 0, f"{shell} -n {name}: {r.stderr}"
+
+
+# ------------------------------------------- changes made against a view
+
+ACME = {"company": "Acme Energy", "title": "Project Engineer"}
+
+
+def test_a_mark_for_the_role_it_was_ticked_for_is_written(repo):
+    core.mark_entry("2026-11-02", 1, apply=True, expect={"apply": False}, entry=ACME)
+    assert "- [x] apply" in digest_text(repo).split("### 2.")[0]
+    # Names are compared loosely, the way the digest index joins them.
+    core.mark_entry("2026-11-02", 1, letter=True, entry={"company": "ACME energy", "title": "project engineer"})
+
+
+def test_a_mark_for_a_role_that_moved_is_refused(repo):
+    before = digest_text(repo)
+    with pytest.raises(tracker.Conflict) as refused:
+        core.mark_entry("2026-11-02", 1, apply=True, entry={"company": "Birch Grid", "title": "Field Engineer"})
+    assert "now Acme Energy — Project Engineer" in str(refused.value)
+    assert refused.value.current["company"] == "Acme Energy"
+    assert digest_text(repo) == before
+
+
+def test_each_box_is_judged_apart(repo):
+    # Entry 2 is skipped. Ticking apply against apply as seen still works.
+    core.mark_entry("2026-11-02", 2, apply=True, expect={"apply": False})
+    # Already at its new value: nothing to do, and nothing refused.
+    assert digest_applies.write_marks(str(repo / "digests" / "2026-11-02.md"), 2, apply=True,
+                                      expect={"apply": False}) is False
+    # Changed elsewhere to something else: refused, with what is there now.
+    with pytest.raises(tracker.Conflict) as refused:
+        core.mark_entry("2026-11-02", 2, skip=False, expect={"skip": False})
+    assert "skip is ticked" in str(refused.value)
+    assert refused.value.current["skip_reason"] == "wants 8+ years"
+    with pytest.raises(tracker.Conflict, match="skip reason is “wants 8"):
+        core.mark_entry("2026-11-02", 2, skip_reason="too far", expect={"skip_reason": "too senior"})
+    core.mark_entry("2026-11-02", 2, skip_reason="too far", expect={"skip_reason": " wants  8+ years "})
+    assert "reason: too far" in digest_text(repo)
+
+
+def test_a_digest_is_written_whole_through_a_file_beside_it(repo):
+    path = repo / "digests" / "2026-11-02.md"
+    path.chmod(0o640)
+    core.mark_entry("2026-11-02", 1, apply=True)
+    assert sorted(p.name for p in (repo / "digests").iterdir()) == ["2026-11-02.md"]
+    assert stat.S_IMODE(path.stat().st_mode) == 0o640
+
+
+def _answer(method: str, path: str, body: dict) -> tuple[int, dict]:
+    """One JSON request through the page: its status and what it said."""
+    import asyncio
+    import server
+    raw = json.dumps(body).encode()
+    scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
+             "method": method, "scheme": "http", "path": path, "raw_path": path.encode(),
+             "query_string": b"", "root_path": "", "client": ("127.0.0.1", 50000),
+             "server": ("127.0.0.1", 8765),
+             "headers": [(b"host", b"127.0.0.1:8765"), (b"content-type", b"application/json")]}
+    sent, asked = [], []
+
+    async def receive():
+        if not asked:
+            asked.append(True)
+            return {"type": "http.request", "body": raw, "more_body": False}
+        await asyncio.Event().wait()
+
+    async def send(message):
+        sent.append(message)
+
+    asyncio.run(server.app(scope, receive, send))
+    status = next(m["status"] for m in sent if m["type"] == "http.response.start")
+    text = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+    return status, json.loads(text) if text else {}
+
+
+def test_the_routes_answer_409_with_what_is_there_now(repo):
+    pytest.importorskip("fastapi")
+    status, said = _answer("PUT", "/api/digests/2026-11-02/entries/2",
+                           {"skip": False, "expect": {"skip": False}, "entry": {"company": "Birch Grid", "title": "Field Engineer"}})
+    assert status == 409 and said["detail"]["current"]["skip"] is True
+    assert "changed since" in said["detail"]["message"]
+    for bad in ({"apply": True, "expect": {"colour": 1}}, {"apply": True, "expect": {"apply": "yes"}},
+                {"apply": True, "entry": {"company": "Acme Energy"}}, {"apply": True, "expect": []}):
+        assert _answer("PUT", "/api/digests/2026-11-02/entries/1", bad)[0] == 400, bad
+    acme = {"company": "Acme Energy", "role": "Project Engineer"}
+    assert _answer("PUT", "/api/applications/status", {**acme, "status": "applied", "expect_last": ""})[0] == 200
+    status, said = _answer("PUT", "/api/applications/status", {**acme, "status": "heard back", "expect_last": ""})
+    assert status == 409 and said["detail"]["current"]["last"].endswith(" applied")
+    assert _answer("PUT", "/api/applications/status", {**acme, "status": "heard back", "expect_last": 3})[0] == 400
+
+
+def test_a_write_waits_for_an_update_then_says_so(repo, monkeypatch):
+    pytest.importorskip("fastapi")
+    monkeypatch.setattr(core, "WRITE_WAIT", 0.05)
+    status, said = _answer("GET", "/api/health", {})
+    assert said["git"] is False
+    with core._git_lock:
+        assert _answer("GET", "/api/health", {})[1]["git"] is True
+        status, said = _answer("PUT", "/api/digests/2026-11-02/entries/1", {"apply": True})
+        assert status == 409 and "update or a backup" in said["detail"]
+    assert _answer("PUT", "/api/digests/2026-11-02/entries/1", {"apply": True})[0] == 200
+
+
+def test_a_skip_cannot_stand_beside_an_apply_ticked_since(repo):
+    seen = {"apply": False, "skip": False, "letter": False, "skip_reason": ""}
+    core.mark_entry("2026-11-02", 1, apply=True)                     # elsewhere, since
+    with pytest.raises(tracker.Conflict, match="apply is ticked now"):
+        core.mark_entry("2026-11-02", 1, skip=True, skip_reason="too far", expect=seen, entry=ACME)
+    assert "- [ ] skip" in digest_text(repo).split("### 2.")[0]
+    # A letter can stand beside an apply: both stay.
+    core.mark_entry("2026-11-02", 1, letter=True, expect=seen, entry=ACME)
+    # Unticking apply in the same change settles it, once apply was seen ticked.
+    core.mark_entry("2026-11-02", 1, skip=True, apply=False, letter=False,
+                    expect={**seen, "apply": True, "letter": True})
+    assert "- [x] skip — reason: too far" not in digest_text(repo)
+    assert "- [x] skip" in digest_text(repo).split("### 2.")[0]
+
+
+# ------------------------------------------------------------ the phone's copy
+# What a phone keeps for reading while the Mac is away (ui/sw.js): the snapshot
+# core.snapshot() sends, its route, and the page's files the worker saves.
+
+def _request(method: str, path: str, headers: dict | None = None) -> tuple[int, dict, bytes]:
+    """One request through the page, as uvicorn hands it over: its status,
+    its headers, and what it sent."""
+    import asyncio
+    import server
+    sent_headers = {"host": "127.0.0.1:8765", **(headers or {})}
+    scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
+             "method": method, "scheme": "http", "path": path, "raw_path": path.encode(),
+             "query_string": b"", "root_path": "", "client": ("127.0.0.1", 50000),
+             "server": ("127.0.0.1", 8765),
+             "headers": [(k.encode("latin-1"), v.encode("latin-1")) for k, v in sent_headers.items()]}
+    sent, asked = [], []
+
+    async def receive():
+        # The request once; after that, a connection that stays open. A file's
+        # response listens for a disconnect while it sends, and must not spin.
+        if not asked:
+            asked.append(True)
+            return {"type": "http.request", "body": b"", "more_body": False}
+        await asyncio.Event().wait()
+
+    async def send(message):
+        sent.append(message)
+
+    asyncio.run(server.app(scope, receive, send))
+    start = next(m for m in sent if m["type"] == "http.response.start")
+    head = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in start["headers"]}
+    return start["status"], head, b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+
+
+def test_the_snapshot_holds_what_the_phone_reads_and_nothing_else(repo):
+    (repo / "content").mkdir()
+    (repo / "content" / "contact.local.md").write_text("Phone: 555-0100, me@example.com\n", encoding="utf-8")
+    (repo / "profile" / "profile.md").write_text("# How a role is judged\n", encoding="utf-8")
+    snap = core.snapshot()
+    paths = set(snap["answers"])
+    assert {"/api/digests", "/api/digests/2026-11-02", "/api/digests/2026-11-02/verdicts", "/api/applications",
+            "/api/profile", "/api/profile/profile/profile.md", "/api/profile/profile/feedback.md"} <= paths
+    assert all(core.SNAPSHOT_PATH.match(p) for p in paths)
+    assert not {p for p in paths if p.startswith(("/api/setup", "/api/commands", "/api/skills", "/api/claude",
+                                                    "/api/runs", "/api/usage", "/api/copy", "/api/keys"))}
+    text = json.dumps(snap["answers"])
+    assert "555-0100" not in text and "me@example.com" not in text and "contact.local" not in text
+    assert snap["answers"]["/api/profile/profile/profile.md"] == "# How a role is judged\n"
+    assert snap["answers"]["/api/digests/2026-11-02"]["entries"][0]["company"] == "Acme Energy"
+    assert "Acme Energy" in [f["company"] for f in snap["answers"]["/api/applications"]["folders"]]
+    # The tag follows the files: a tick changes it, and nothing else does.
+    assert core.snapshot()["etag"] == snap["etag"]
+    core.mark_entry("2026-11-02", 1, apply=True)
+    assert core.snapshot()["etag"] != snap["etag"]
+
+
+def test_the_snapshot_route_tags_its_answer_and_spares_a_current_copy(repo):
+    pytest.importorskip("fastapi")
+    status, head, body = _request("GET", "/api/snapshot")
+    assert status == 200 and head["etag"].startswith('"') and head["cache-control"] == "no-cache"
+    snap = json.loads(body)
+    assert f'"{snap["etag"]}"' == head["etag"] and "/api/digests" in snap["answers"]
+    status, again, body = _request("GET", "/api/snapshot", {"if-none-match": head["etag"]})
+    assert status == 304 and not body and again["etag"] == head["etag"]
+    assert _request("GET", "/api/snapshot", {"if-none-match": f'W/{head["etag"]}, "other"'})[0] == 304
+    assert _request("GET", "/api/snapshot", {"if-none-match": '"stale"'})[0] == 200
+    # A phone that is not set up is refused, like every other route.
+    assert _request("GET", "/api/snapshot", {"tailscale-user-login": "x@github"})[0] == 403
+    assert _request("GET", "/sw.js", {"tailscale-user-login": "x@github"})[0] == 403
+
+
+def test_the_page_and_the_worker_are_served_with_their_types_and_a_policy(repo):
+    pytest.importorskip("fastapi")
+    import re
+    status, head, body = _request("GET", "/")
+    assert status == 200 and head["content-security-policy"].startswith("default-src 'self'")
+    assert b'<script src="app.js">' in body
+    with open(os.path.join(ROOT, "ui", "sw.js"), encoding="utf-8") as fh:
+        sw = fh.read()
+    listed = re.search(r"const SHELL = \[(.*?)\]", sw, re.S).group(1)
+    files = ["/" + name for name in re.findall(r'"([^"]*)"', listed)]
+    assert len(files) == 7 and "/" in files and "/app.js" in files
+    kinds = {"/": "text/html", ".js": "text/javascript", ".css": "text/css",
+             ".webmanifest": "application/manifest+json", ".png": "image/png"}
+    for p in files:
+        status, head, body = _request("GET", p)
+        assert status == 200 and body, p
+        assert head["content-type"].startswith(kinds.get(p) or kinds[os.path.splitext(p)[1]]), p
+    status, head, body = _request("GET", "/sw.js")
+    assert status == 200 and head["content-type"].startswith("text/javascript")
+    assert head["cache-control"] == "no-cache" and b"self.addEventListener" in body
+    # The reads the worker keeps are the ones the snapshot sends.
+    kept = re.search(r"const KEPT = /(.*)/;", sw).group(1)
+    assert kept.replace("\\/", "/") == core.SNAPSHOT_PATH.pattern
+
+
+def test_the_phones_choices_default_to_profile_kept_and_documents_not():
+    """Phase 4 (ui/sw.js): the profile files' text is kept unless turned off,
+    filed documents, which carry contact details, only when turned on and only
+    those filed in the last 30 days, in a cache of their own that a new
+    version of the worker does not throw away."""
+    import re
+    with open(os.path.join(ROOT, "ui", "sw.js"), encoding="utf-8") as fh:
+        sw = fh.read()
+    assert "const DEFAULTS = { profile: true, documents: false };" in sw
+    assert "const DAYS = 30;" in sw
+    assert "name !== CACHE && name !== DOCS" in sw
+    doc = re.compile(re.search(r"const DOC = /(.*)/;", sw).group(1).replace("\\/", "/"))
+    # The paths app.js's fileUrl() makes, one level down inside a `_` folder too.
+    assert doc.match("/api/applications/Acme%20Energy/Project%20Engineer.pdf")
+    assert doc.match("/api/applications/_Not%20employers%2FSent%20to%20a%20friend/Resume.pdf")
+    assert not doc.match("/api/applications") and not doc.match("/api/applications/status/x/y")

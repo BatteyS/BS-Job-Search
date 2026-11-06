@@ -7,6 +7,7 @@ the test's own, with no one's name, signing, or credential helpers in it."""
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import types
@@ -576,3 +577,77 @@ def test_the_first_update_stops_before_writing_over_uncommitted_changes(from_the
     with pytest.raises(core.Stop, match="write over README.md"):
         core.update_copy()
     assert (from_the_button / "README.md").read_text(encoding="utf-8") == "edited, not committed\n"
+
+
+# ---------------------------------------------------------------- version
+# Which version the page shows in its title and header (core.version).
+
+def test_a_clone_shows_the_export_it_is_at_and_commits_since(clone, monkeypatch):
+    monkeypatch.setattr(core, "_version", {"head": "", "value": None})
+    v = core.version()
+    assert v["label"] == "v1.0" and v["commit"] == head(clone)[:7] and not v["changed"]
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", v["date"])
+    assert core.version_text(v) == f"v1.0 · {head(clone)[:7]}"
+    commit(clone, "My own change", {"profile/profile.md": "# mine\n"})
+    commit(clone, "Another", {"profile/profile.md": "# mine, again\n"})
+    assert core.version()["label"] == "v1.0+2"
+    # Code edited and not committed says so; a profile file does not count.
+    write(clone, {"profile/profile.md": "# edited\n"})
+    assert not core.version()["changed"]
+    write(clone, {"ui/app.js": "// edited here\n"})
+    assert core.version()["changed"] and core.version_text().endswith(" · edited")
+
+
+def test_a_copy_with_no_export_is_labeled_by_its_latest_merged_pr(tmp_path, monkeypatch):
+    monkeypatch.setattr(core, "_version", {"head": "", "value": None})
+    repo = tmp_path / "private"
+    repo.mkdir()
+    git(repo, "init", "-q")
+    commit(repo, "Start", {"ui/app.js": "// a\n"})
+    point_at(monkeypatch, repo)
+    assert core.version()["label"] == "" and core.version_text() == head(repo)[:7]
+    commit(repo, "Merge pull request #12 from someone/branch", {"ui/app.js": "// b\n"})
+    commit(repo, "Merge pull request #59 from someone/later", {"ui/app.js": "// c\n"})
+    commit(repo, "Fix a typo", {"README.md": "x\n"})
+    assert core.version()["label"] == "#59"
+
+
+def test_outside_git_there_is_no_version(tmp_path, monkeypatch):
+    point_at(monkeypatch, tmp_path)
+    assert core.version() == {"label": "", "commit": "", "date": "", "changed": False}
+    assert core.version_text() == ""
+
+
+def test_the_page_carries_its_version_and_a_tag_for_the_phones_copy(clone, monkeypatch):
+    pytest.importorskip("fastapi")
+    import asyncio
+    import server
+    monkeypatch.setattr(core, "_version", {"head": "", "value": None})
+    page = server.page_html()
+    sha = head(clone)[:7]
+    assert "<title>BS Job Search v1.0</title>" in page
+    assert f'class="version" title="Commit {sha} of ' in page and f">v1.0 · {sha}</span>" in page
+
+    def get(headers):
+        scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "GET",
+                 "scheme": "http", "path": "/", "raw_path": b"/", "query_string": b"", "root_path": "",
+                 "client": ("127.0.0.1", 50000), "server": ("127.0.0.1", 8765),
+                 "headers": [(b"host", b"127.0.0.1:8765")] + [(k.encode(), v.encode()) for k, v in headers.items()]}
+        sent = []
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(m):
+            sent.append(m)
+
+        asyncio.run(server.app(scope, receive, send))
+        start = next(m for m in sent if m["type"] == "http.response.start")
+        return start["status"], {k.decode().lower(): v.decode() for k, v in start["headers"]}
+
+    status, h = get({})
+    assert status == 200 and h["etag"].startswith('"') and "default-src 'self'" in h["content-security-policy"]
+    assert get({"if-none-match": h["etag"]})[0] == 304
+    assert get({})[1]["etag"] == h["etag"]                 # the same page, the same tag: no reload on a phone
+    commit(clone, "Mine", {"profile/profile.md": "# mine\n"})
+    assert get({})[1]["etag"] != h["etag"]                 # a new version: the phone's copy reloads once

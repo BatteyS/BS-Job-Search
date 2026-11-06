@@ -139,10 +139,9 @@ def answers(repo: str) -> dict:
             m.ROOT = repo
             m.DIGESTS = os.path.join(repo, "digests")
             m.APPS = os.path.join(repo, "Applications")
-        get = {
-            "/api/digests": core.list_digests(),
-            "/api/applications": core.list_applications(),
-            "/api/profile": core.list_profile_files(),
+        # The digests, applications and profile files are what a phone keeps too.
+        return {
+            **core.snapshot()["answers"],
             "/api/setup": core.setup_state(),
             "/api/commands": core.Runs().commands(),
             # No plan usage: a demo's routes must not read this machine's.
@@ -151,13 +150,6 @@ def answers(repo: str) -> dict:
             "/api/runs": [],
             "/api/claude/runs": [],
         }
-        for d in get["/api/digests"]:
-            get[f"/api/digests/{d['date']}"] = core.read_digest(d["date"])
-            get[f"/api/digests/{d['date']}/verdicts"] = core.verdicts_section(d["date"])
-        for p in get["/api/profile"]:
-            if p["exists"]:
-                get[f"/api/profile/{p['path']}"] = core.read_profile_file(p["path"])
-        return get
     finally:
         for m, k, v in saved:
             setattr(m, k, v)

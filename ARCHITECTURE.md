@@ -194,6 +194,16 @@ rather than write over uncommitted work or settle a conflict itself, and the pag
 when an update needs it restarted. git runs with no terminal to prompt in, so a missing
 sign-in is an error to report, not a prompt hidden in the page's own window.
 
+A tick or a status change says what the page showed when it was made: a tick, the role
+and every box of its entry; a status, the last dated line and the note. When the file no
+longer holds that (a scan added a run, another tab or a phone changed it), the change is
+refused with what is there now, and the page redraws. A tick cannot stand beside a verdict
+it contradicts ticked since (skip against apply or a letter), and the same change sent
+twice counts as done. Digests and the tracker are each written whole through a temporary
+file, under a lock, and the page's writes wait for an update or a backup to finish rather
+than land mid-merge. This is the first step toward a phone that queues changes while the
+Mac is away and sends them later.
+
 `ui/router.py` picks each run's model and effort from the skill, what the run is given
 (how much is marked in a digest), and how full the plan's usage windows are, and says
 why. Its rules are plain code, so routing uses none of the plan, and a run keeps its
@@ -248,6 +258,51 @@ the tabs sit in a bar along the bottom, each tab's sidebar folds into a bar that
 what is open and unfolds to the list on a tap (`setSide` in `app.js`), the status line is
 a toast, a run's reply box stays at the bottom while the run waits, and everything tapped
 is at least 40px tall. Wider than a phone, nothing changes.
+
+A phone keeps a copy of the page, so the icon opens while the Mac is away. `app.js`
+registers a service worker (`ui/sw.js`) only off the Mac. It saves the page's own files and
+every read the Mac answers through `/api/snapshot` (`core.snapshot`): the digests, the
+applications and where each stands, and the profile files, as the page's routes answer
+them, with a tag that changes when any of them does, so a copy that is current costs a
+304. The phone's own choices, under This phone in the Setup tab, decide two things: the
+profile files' text is kept unless turned off, and documents filed under `Applications/`
+in the last 30 days are kept only when turned on, since resumes and letters carry contact
+details. Those sit in a cache of their own, each fetched again only when its date or size
+changes, and older ones leave the phone whenever the app opens. Nothing else is kept:
+never keys, `contact.local.md`, run transcripts, or what Setup and Runs show, which need
+the Mac anyway. Forget this phone's copy sends what waits in the outbox if the Mac
+answers, asks before losing what does not, then deletes the copy and the worker and
+keeps none until asked again. A filed PDF has a Share button where the device can share
+files, which hands the whole PDF to the share sheet, since a framed PDF shows only its
+first page on iOS. A read asks the Mac first while it has answered
+lately and falls back to the copy; when it has not, the copy answers at once and the Mac is
+asked behind, so the icon opens without waiting on a Mac that may be asleep. An answer
+from the copy says so, and the page shows a banner with the copy's age until the Mac
+answers again, when the worker takes a fresh snapshot and the page redraws what it has
+loaded; when the page's own files changed on the Mac (an update), it reloads. The page is
+served with a Content-Security-Policy that allows only its own files and routes, on the
+Mac and from the copy.
+
+The page says which version it is in its title and beside its name (`core.version`): the template export a copy is at, "v1.55", with "+3" for commits of its own since; in a copy
+with no export in its history, the private repository the exports come from, the latest
+pull request merged, "#59"; then the commit, and "edited" when code differs from it.
+The server writes it into `index.html` and tags the page by its content, so a phone's
+copy reloads only when the version changes.
+
+A tick or a status change made while the Mac is away waits on the phone (`app.js`, the
+outbox, in the page's own storage) and goes once the Mac answers: oldest first, one at a
+time, each kept until the Mac takes it, and not while a skill or an update holds the Mac's
+files (`/api/health` says). It shows as made meanwhile, with a count in the header. Each
+carries what the page showed when it was made, so the Mac takes it, finds it already holds
+(a change sent again after its answer was lost), or refuses it with what is there now,
+which becomes a card in the header's panel to settle: use the phone's, checked against
+what the Mac holds now, or keep the Mac's. A tick joins the one already waiting for the
+same entry; a status given later keeps the day it was given, and waits if the Mac's day
+has not reached it. Nothing else waits there: verdicts, keys and runs need the Mac. The
+Mac keeps no record of what came from the phone, because the checks make a change sent
+twice harmless, and Back up already lists every file that changed. On iPhone the outbox
+goes only while the app is open, since iOS Safari has no background sync, and removing
+the icon from the home screen loses it, which the panel says.
 
 `ui/build_demo.py` builds the same page as static files for each example profile, from
 its `examples/<name>/demo/` folder: it lays the example out like a copy of this repo,

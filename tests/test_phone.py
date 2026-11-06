@@ -155,12 +155,12 @@ def test_a_working_run_is_never_cut_off_to_set_it_up(monkeypatch):
 
 def test_a_copy_macos_keeps_from_background_starts_is_refused_untouched(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("HOME", str(tmp_path))
-    for inside, where in (("Documents/2026 Job Search", "Documents"), ("Desktop/js", "Desktop"),
+    for inside, where in (("Documents/job search", "Documents"), ("Desktop/js", "Desktop"),
                           ("Library/Mobile Documents/com~apple~CloudDocs/js", "iCloud Drive")):
         assert phone.protected_folder(str(tmp_path / inside)) == where
     assert phone.protected_folder(str(tmp_path / "job-search")) is None
     monkeypatch.setattr(phone.sys, "platform", "darwin")
-    monkeypatch.setattr(core, "ROOT", str(tmp_path / "Documents" / "2026 Job Search"))
+    monkeypatch.setattr(core, "ROOT", str(tmp_path / "Documents" / "job search"))
     monkeypatch.setattr(phone, "install_agent", lambda *a, **k: pytest.fail("launchd was touched"))
     assert phone.enable() == 1
     out = capsys.readouterr().out
@@ -169,8 +169,7 @@ def test_a_copy_macos_keeps_from_background_starts_is_refused_untouched(tmp_path
 
 def test_an_agent_that_cannot_start_the_page_is_taken_out_again(tmp_path, monkeypatch):
     """Left loaded, it would hold the port and fail every request, Job Search
-    on the Desktop's included: what happened on 2026-11-03 with a copy in
-    Documents."""
+    on the Desktop's included."""
     log = tmp_path / "page.log"
     log.write_text("earlier lines\n")
     plist = tmp_path / "agent.plist"

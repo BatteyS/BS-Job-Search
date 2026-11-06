@@ -13,6 +13,24 @@ const DEMO = window.DEMO || null;
 // Whether this tab is on the Mac itself, or on another device, a phone through
 // Tailscale (ui/phone.py): what the page says to do depends on it.
 const ON_MAC = ["127.0.0.1", "localhost", "[::1]", "::1"].includes(location.hostname);
+// Off the Mac, a service worker (sw.js) keeps a copy of this page and of what
+// it reads on this device, so the icon opens and shows the digests, the
+// applications and the profile files while the Mac cannot be reached. A
+// change still needs the Mac. Where a worker cannot run (a plain http:
+// address) registering fails, and the Mac answers as before.
+// Forget this phone's copy (Setup, This phone) turns it off until asked again.
+const NO_COPY_KEY = "bs-job-search.nocopy";
+let noCopy = false;
+try { noCopy = localStorage.getItem(NO_COPY_KEY) === "1"; } catch (e) { /* storage blocked: keep the copy */ }
+const CAN_COPY = !ON_MAC && !DEMO && "serviceWorker" in navigator;
+const COPY = CAN_COPY && !noCopy;
+if (COPY) {
+  navigator.serviceWorker.register("sw.js").catch(() => { /* the Mac answers as before */ });
+  // Ask the phone to keep the copy through storage pressure; iOS grants it to a home-screen app.
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+}
+const NEEDS_MAC = "Your Mac is not answering, so this cannot be saved. It needs the Mac awake and Tailscale on; this page picks up by itself once it answers.";
+const WRITE_WAIT = 12000;   // ms a change waits for the Mac: one that is asleep never answers
 
 // An error stays until the next message. On a phone, where the line is a
 // toast over the page (style.css), it goes after eight seconds, or on a tap.
@@ -26,11 +44,25 @@ statusEl.onclick = () => { statusEl.textContent = ""; };
 
 async function api(path, opts = {}) {
   if (DEMO) return demoApi(path, opts);
-  const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
+  // Off the Mac, a change waits a bounded time rather than hanging on a Mac
+  // that is asleep, and a short one once the page has seen the Mac away.
+  const write = (opts.method || "GET").toUpperCase() !== "GET";
+  const ctl = write && !ON_MAC && window.AbortController ? new AbortController() : null;
+  const timer = ctl && setTimeout(() => ctl.abort(), fromPhone ? 3000 : WRITE_WAIT);
+  let r;
+  try { r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts, ...(ctl ? { signal: ctl.signal } : {}) }); }
+  catch (e) { throw new Error(write && !ON_MAC ? NEEDS_MAC : e.message); }
+  finally { if (timer) clearTimeout(timer); }
+  noteServed(r);
   if (!r.ok) {
-    let msg = r.statusText;
-    try { msg = (await r.json()).detail || msg; } catch (_) { /* not json */ }
-    throw Object.assign(new Error(msg), { status: r.status });
+    let msg = r.statusText, current = null;
+    try {
+      const detail = (await r.json()).detail;
+      // A 409 conflict says what is there now, beside its message.
+      if (detail && typeof detail === "object") { msg = detail.message || msg; current = detail.current || null; }
+      else msg = detail || msg;
+    } catch (_) { /* not json */ }
+    throw Object.assign(new Error(msg), { status: r.status, current });
   }
   const ct = r.headers.get("content-type") || "";
   return ct.includes("json") ? r.json() : r.text();
@@ -137,6 +169,13 @@ async function openDigest(date) {
   view.replaceChildren(el("p", { class: "muted" }, "Loading…"));
   let d;
   try { d = await api("/api/digests/" + date); } catch (e) { view.replaceChildren(el("p", { class: "muted" }, e.message)); return; }
+  // Ticks made on this phone that the Mac has not taken yet show as made.
+  for (const o of outbox) {
+    const m = o.kind === "mark" && o.path.match(/^\/api\/digests\/([^/]+)\/entries\/(\d+)$/);
+    const en = m && m[1] === date && d.entries.find(x => x.n === Number(m[2]));
+    if (en) localMark(en, o.body);
+  }
+  if (outbox.length) refreshDigestCounts(markCounts(d));
 
   const verdictsOut = el("div");
   const toolbar = el("div", { class: "toolbar" },
@@ -164,12 +203,34 @@ function entryCard(date, e) {
   const letter = el("input", { type: "checkbox" }); letter.checked = e.marked_letter;
   const reason = el("input", { type: "text", placeholder: "skip — reason (say why: it teaches the scorer)", value: e.skip_reason || "" });
 
+  // Each change says what this card showed in the boxes it changes, and which
+  // role it is for, so one made against a digest changed since (by a scan, a
+  // skill, or another tab) is refused rather than written over it.
+  const shown = { apply: "marked_apply", skip: "marked_skip", letter: "marked_letter", skip_reason: "skip_reason" };
+  const path = `/api/digests/${date}/entries/${e.n}`;
+  const wait = el("span", { class: "chip warn", hidden: "" });
+  const waiting = () => {
+    const q = outbox.find(o => o.kind === "mark" && o.path === path);
+    wait.hidden = !q;
+    if (q) { wait.textContent = q.conflict ? "to settle: see the header" : "waiting for your Mac"; wait.className = "chip " + (q.conflict ? "bad" : "warn"); }
+    card.classList.toggle("waiting", !!q);
+  };
   async function save(marks) {
+    const expect = Object.fromEntries(Object.keys(shown).map(k => [k, k === "skip_reason" ? e.skip_reason || "" : !!e[shown[k]]]));
+    const edit = { id: editId(), kind: "mark", at: new Date().toISOString(), path, label: `${e.company} — ${e.title}: ${markSaid(marks)}`,
+                   body: { ...marks, expect, entry: { company: e.company, title: e.title } } };
+    const made = () => { Object.assign(e, { marked_apply: apply.checked, marked_skip: skip.checked, marked_letter: letter.checked, skip_reason: reason.value }); state(); };
     try {
-      const counts = await api(`/api/digests/${date}/entries/${e.n}`, { method: "PUT", body: JSON.stringify(marks) });
-      Object.assign(e, { marked_apply: apply.checked, marked_skip: skip.checked, marked_letter: letter.checked, skip_reason: reason.value });
-      state(); refreshDigestCounts(counts); say(DEMO ? "Ticked on this page only: the demo saves nothing." : `Saved #${e.n}`);
-    } catch (err) { say(err.message, true); }
+      const counts = await send(edit);
+      made(); refreshDigestCounts(counts); waiting(); say(DEMO ? "Ticked on this page only: the demo saves nothing." : `Saved #${e.n}`);
+    } catch (err) {
+      // Queued on this phone: the tick shows as made, and goes when the Mac answers.
+      if (err.queued) { made(); waiting(); say(err.message); return; }
+      say(err.message, true);
+      if (err.status === 409 && currentDigest === date) openDigest(date).then(() => say(err.message, true));
+      // Not saved at all: the boxes go back to what the file holds.
+      else if (!err.status) { apply.checked = e.marked_apply; skip.checked = e.marked_skip; letter.checked = e.marked_letter; reason.value = e.skip_reason || ""; }
+    }
   }
   apply.onchange = () => save({ apply: apply.checked });
   skip.onchange = () => save({ skip: skip.checked, skip_reason: reason.value });
@@ -179,11 +240,13 @@ function entryCard(date, e) {
   reason.onblur = saveReason;
   reason.onkeydown = ev => { if (ev.key === "Enter") reason.blur(); };
 
+  waiting();
   card.append(el("div", { class: "marks" },
     el("label", {}, apply, "apply"),
     el("label", {}, skip, "skip"),
     reason,
     el("label", {}, letter, "cover letter"),
+    wait,
   ));
 
   const chips = el("div", {});
@@ -231,6 +294,8 @@ const ANSWERED = new Set(["heard back", "interviewing", "offer", "accepted"]);
 
 async function loadApplications() {
   try { apps = await api("/api/applications"); } catch (e) { say(e.message, true); return; }
+  // Changes made on this phone that the Mac has not taken yet show as made.
+  for (const o of outbox) if (o.kind === "status" && !o.conflict) localStatus(apps, o.body);
   if (appOpen !== "all" && apps.folders.some(f => f.company === appOpen)) openApplication(appOpen);
   else openTracker();
 }
@@ -313,9 +378,17 @@ function openApplication(company) {
 function statusRow(r, withCompany) {
   const row = el("div", { class: "app-row" });
 
+  // Each change says the last line and the note this row showed, so one made
+  // against a tracker changed since is refused rather than written over it.
   async function save(change) {
-    try {
-      apps = await api("/api/applications/status", { method: "PUT", body: JSON.stringify({ company: r.company, role: r.role, ...change }) });
+    const h = r.history, last = h.length ? h[h.length - 1] : null, before = h.length > 1 ? h[h.length - 2] : null;
+    const seen = { expect_last: last ? `${last.date} ${last.status}` : "", ...("note" in change ? { expect_note: r.note || "" } : {}) };
+    const edit = { id: editId(), kind: "status", at: new Date().toISOString(), path: "/api/applications/status",
+                   label: `${r.company} — ${r.role || "the employer as a whole"}: ${statusSaid(change)}`,
+                   body: { company: r.company, role: r.role, ...change, ...seen },
+                   // The line an undo leaves last: an undo sent again, after its answer was lost, is then done.
+                   before: before ? `${before.date} ${before.status}` : "" };
+    const drawn = () => {
       const next = appRows().find(x => x.company === r.company && x.role === r.role);
       if (next) { r = next; draw(); } else row.remove();
       if (appOpen !== "all" && !apps.folders.some(f => f.company === appOpen)) { openTracker(); return; }
@@ -324,9 +397,17 @@ function statusRow(r, withCompany) {
       if (counts) counts.textContent = appCounts(appRows());
       const bar = $("#tab-applications .side-label small");
       if (bar) bar.textContent = appOpen === "all" ? appCounts(appRows()) : folderLine(apps.folders.find(f => f.company === appOpen));
+    };
+    try {
+      apps = await send(edit);
+      drawn();
       say(DEMO ? "Changed on this page only: the demo saves nothing." : `Saved to ${apps.file}`);
     } catch (e) {
+      // Queued on this phone: the change shows as made, and goes when the Mac answers.
+      if (e.queued) { localStatus(apps, edit.body); drawn(); say(e.message); return; }
       say(e.message, true);
+      // Changed elsewhere since: show what is there now, and say so again.
+      if (e.status === 409 && e.current) { await loadApplications(); say(e.message, true); return; }
       if (!("note" in change)) draw();   // a refused note stays as typed, to fix
     }
   }
@@ -342,6 +423,9 @@ function statusRow(r, withCompany) {
     if (r.waiting) chips.append(el("span", { class: "chip warn", title: "Mark it no response once you stop expecting an answer" }, `no word in ${r.waiting} days`));
     if (r.role && !r.filed) chips.append(el("span", { class: "chip" }, "files not on this machine"));
     if (r.problem) chips.append(el("span", { class: "chip bad", title: r.problem }, `fix by hand in ${apps.file}`));
+    const queued = outbox.filter(o => o.kind === "status" && o.body.company === r.company && (o.body.role || "") === (r.role || ""));
+    if (queued.length) chips.append(el("span", { class: "chip " + (queued.some(o => o.conflict) ? "bad" : "warn") },
+      queued.some(o => o.conflict) ? "to settle: see the header" : "waiting for your Mac"));
     if (chips.childElementCount) who.append(chips);
 
     // Only the moves the tracker takes: a step further, or an ending. Undo
@@ -382,8 +466,23 @@ function fileUrl(company, name) {
 }
 
 async function showFile(viewer, url, name) {
-  // A phone shows only a framed PDF's first page, so a link opens all of it.
-  if (name.toLowerCase().endsWith(".pdf")) { viewer.replaceChildren(el("p", { class: "small" }, el("a", { href: url, target: "_blank", rel: "noopener" }, "Open the whole PDF")), el("iframe", { class: "pdf", src: url })); return; }
+  // A phone shows only a framed PDF's first page, so a link opens all of it,
+  // and where the device can share files, Share hands the whole PDF to its
+  // share sheet: Quick Look, Save to Files, Print, Mail. The file is fetched
+  // first, so the tap itself shares at once, as iOS requires.
+  if (name.toLowerCase().endsWith(".pdf")) {
+    const share = el("button", { class: "action small", hidden: "" }, "Share");
+    viewer.replaceChildren(el("p", { class: "small toolbar" }, el("a", { href: url, target: "_blank", rel: "noopener" }, "Open the whole PDF"), share), el("iframe", { class: "pdf", src: url }));
+    if (!DEMO && navigator.canShare && window.File) {
+      fetch(url).then(r => r.ok ? r.blob() : Promise.reject(new Error(r.statusText))).then(blob => {
+        const file = new File([blob], name, { type: "application/pdf" });
+        if (!navigator.canShare({ files: [file] })) return;
+        share.hidden = false;
+        share.onclick = () => navigator.share({ files: [file], title: name }).catch(e => { if (e.name !== "AbortError") say(e.message, true); });
+      }).catch(() => { /* no Share: the link and the frame stay */ });
+    }
+    return;
+  }
   viewer.replaceChildren(el("p", { class: "muted" }, "Loading…"));
   try {
     const text = await api(url);
@@ -404,7 +503,8 @@ async function loadRuns() {
   const side = $("#run-commands");
   side.replaceChildren();
   let cmds, status = { available: false, reason: "" }, skills = [];
-  try { cmds = await api("/api/commands"); } catch (e) { say(e.message, true); return; }
+  try { cmds = await api("/api/commands"); }
+  catch (e) { side.replaceChildren(el("p", { class: "banner" }, fromPhone ? "Runs need your Mac, and it is not answering." : e.message)); return; }
   try { status = await api("/api/claude/status"); if (status.available) skills = await api("/api/skills"); } catch (e) { status = { available: false, reason: e.message }; }
 
   side.append(el("h3", {}, "Skills"));
@@ -421,7 +521,8 @@ async function loadRuns() {
   }
   if (status.available) await loadPastRuns(side);
 
-  const old = await api("/api/runs");
+  let old = [];
+  try { old = await api("/api/runs"); } catch (e) { /* the Mac is away: nothing to attach */ }
   for (const r of old) attachRun(r, false);
   // Opened with a run still going, as a phone checking on one: show the run.
   if (old.some(r => ACTIVE.includes(r.status))) pickSide("runs");
@@ -895,6 +996,67 @@ async function setupState() {
   return s;
 }
 
+// ------------------------------------------------------------ this phone
+// Off the Mac, what this device keeps for when the Mac is away (sw.js), and
+// this device's choices about it: the profile files' text (kept unless turned
+// off) and documents filed in the last 30 days (not kept unless turned on,
+// since resumes and letters carry contact details). Forget deletes the copy
+// and stops keeping one, after sending what waits in the outbox if it can.
+
+function askThisPhone() {
+  const sw = navigator.serviceWorker && navigator.serviceWorker.controller;
+  if (sw) sw.postMessage({ type: "ask" });
+}
+
+function showThisPhone(kept) {
+  const box = $("#this-phone");
+  if (box) box.replaceChildren(...thisPhoneView(kept));
+}
+
+function thisPhoneView(kept) {
+  const head = el("div", { class: "copy-head" }, el("b", {}, "This phone"));
+  if (!COPY) return [head, el("p", { class: "small" }, "This phone keeps no copy of the page, so the icon needs your Mac to open. ",
+    el("button", { class: "action small", onclick: () => { try { localStorage.removeItem(NO_COPY_KEY); } catch (e) { /* blocked */ } location.reload(); } }, "Keep a copy on this phone"))];
+  if (!navigator.serviceWorker.controller) { setTimeout(askThisPhone, 1500); return [head, el("p", { class: "muted small" }, "Saving a copy of the page on this phone…")]; }
+  if (!kept) { askThisPhone(); return [head, el("p", { class: "muted small" }, "Checking what this phone keeps…")]; }
+  const s = kept.settings;
+  const when = kept.savedAt ? new Date(kept.savedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "not yet";
+  const used = el("span", {});
+  if (navigator.storage && navigator.storage.estimate) navigator.storage.estimate().then(e => { used.textContent = ` It uses about ${fmtSize(e.usage || 0)} here.`; }).catch(() => {});
+  const choice = (key, label, about) => {
+    const box = el("input", { type: "checkbox", "data-choice": key });
+    box.checked = !!s[key];
+    box.onchange = () => {
+      const sw = navigator.serviceWorker.controller;
+      if (!sw) { box.checked = !box.checked; say("This phone's copy is not ready yet; try again in a moment.", true); return; }
+      // Both switches as they stand now, so two changes in a row both hold.
+      const now = {};
+      for (const b of document.querySelectorAll("#this-phone [data-choice]")) now[b.dataset.choice] = b.checked;
+      sw.postMessage({ type: "settings", ...s, ...now, [key]: box.checked });
+      say(serverGone ? "Saved. It takes effect once your Mac answers." : "Saved. Updating this phone's copy…");
+    };
+    return el("label", { class: "choice" }, box, el("span", {}, label, el("span", { class: "muted small" }, " " + about)));
+  };
+  return [head,
+    el("p", { class: "small" }, `The icon opens from a copy kept on this phone when your Mac is away. Last saved ${when}.`, used),
+    choice("profile", "Keep your profile files on this phone", "(resume facts, stories, profile): readable with the Mac away."),
+    choice("documents", `Keep documents filed in the last ${kept.days} days`, `(resumes, letters, prep sheets, postings): they carry your contact details. ${s.documents ? `${kept.documents} kept now.` : ""}`),
+    el("div", { class: "toolbar" }, el("button", { class: "action small", onclick: ev => forgetThisPhone(ev.target) }, "Forget this phone's copy"),
+      el("span", { class: "muted small" }, "Deletes it all from this phone, and stops keeping one. Removing the icon from the home screen does the same."))];
+}
+
+async function forgetThisPhone(btn) {
+  btn.disabled = true;
+  if (outbox.length && !serverGone) await replay();
+  if (outbox.length && !confirm(`${outbox.length === 1 ? "A change" : `${outbox.length} changes`} made on this phone ${outbox.length === 1 ? "has" : "have"} not reached your Mac and will be lost. Forget this phone's copy anyway?`)) { btn.disabled = false; return; }
+  try { localStorage.setItem(NO_COPY_KEY, "1"); localStorage.removeItem(OUTBOX_KEY); } catch (e) { /* blocked */ }
+  const sw = navigator.serviceWorker.controller;
+  if (sw) { sw.postMessage({ type: "forget" }); setTimeout(() => location.reload(), 4000); return; }
+  for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
+  for (const name of await caches.keys()) if (name.startsWith("bs-job-search-")) await caches.delete(name);
+  location.reload();
+}
+
 async function loadSetup() {
   const view = $("#setup-view");
   const checking = () => el("div", {}, el("p", { class: "muted small" }, "Checking…"));
@@ -906,7 +1068,9 @@ async function loadSetup() {
     el("div", { class: "toolbar" }, el("h2", {}, "Set up"), el("button", { class: "action small", onclick: () => loadSetup() }, "Check again")),
     DEMO ? el("p", { class: "banner" }, DEMO.setupNote) : "",
     !DEMO && !ON_MAC ? el("p", { class: "banner" }, "These steps run on your Mac: this page is open on another device, and each command here goes in Terminal on the Mac.") : "",
+    fromPhone ? el("p", { class: "banner bad" }, "Setup needs your Mac, and it is not answering.") : "",
     ready,
+    CAN_COPY ? el("section", { id: "this-phone", class: "copy" }, ...thisPhoneView(null)) : "",
     copy,
     setupStep("1", "Claude Code", "The page runs your own Claude Code, with your own login, to do the interviewing, scoring and writing.", parts.claude),
     setupStep("2", "Your profile", "Set up interviews you and writes these files. Every write to your resume facts, stories or profile shows you the exact text first and waits for your approval.", el("div", {}, parts.files, parts.problems)),
@@ -1329,6 +1493,64 @@ function markdown(text) {
 
 let HEALTH = null, serverGone = false, restarting = false, gonePoll = null;
 
+// Off the Mac, what the page reads may come from this device's copy (sw.js)
+// while the Mac is away. A read answered from the copy says so, and when the
+// copy was saved; the banner shows that until the Mac answers again, when the
+// worker takes a fresh snapshot and the page redraws what it has loaded.
+
+let fromPhone = null;      // when the copy being shown was saved, while the Mac has not answered
+let refreshTimer = null, refreshWanted = false;
+
+function noteServed(r) {
+  if (!COPY || fromPhone || r.headers.get("X-Served-From") !== "phone") return;
+  fromPhone = r.headers.get("X-Saved-At") || "unknown";
+  serverBanner(copyText(), false);
+}
+
+function copyText() {
+  const at = fromPhone && fromPhone !== "unknown" ? new Date(fromPhone) : null;
+  const when = at && !isNaN(at) ? at.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "an earlier visit";
+  return serverGone
+    ? `Your Mac isn't answering (asleep, offline, or Tailscale is off), so this is the phone's copy from ${when}. Reading works; a change needs the Mac, and this page picks up by itself once it answers.`
+    : `Showing this phone's copy from ${when} while your Mac is asked.`;
+}
+
+// The Mac answers again: what waited here goes to it, the worker takes a
+// fresh snapshot, and the page redraws.
+function macBack() {
+  fromPhone = null;
+  serverBanner("");
+  replaySoon(0);
+  if (navigator.serviceWorker && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "refresh" });
+  refreshSoon();
+}
+
+// Redraw what is loaded from what the Mac says now: the digests and the one
+// open, the applications, the profile list, and the runs. Not while something
+// is being typed: then once it is left.
+function refreshSoon() { refreshWanted = true; clearTimeout(refreshTimer); refreshTimer = setTimeout(refreshViews, 400); }
+function typing() { const a = document.activeElement; return !!a && ["INPUT", "TEXTAREA", "SELECT"].includes(a.tagName); }
+async function refreshViews() {
+  if (!refreshWanted || typing()) return;
+  refreshWanted = false;
+  if (loaded.digests) { await loadDigests(); if (currentDigest) await openDigest(currentDigest); }
+  if (loaded.applications) loadApplications();
+  if (loaded.profile) loadProfile();
+  if (loaded.runs) loadRuns();
+}
+document.addEventListener("focusout", () => { if (refreshWanted) setTimeout(refreshViews, 300); });
+
+if (COPY) navigator.serviceWorker.addEventListener("message", e => {
+  const m = e.data || {};
+  if (m.type === "kept") showThisPhone(m);
+  else if (m.type === "settings") { askThisPhone(); refreshSoon(); }
+  else if (m.type === "forgotten") location.reload();
+  else if (m.type === "fresh") refreshSoon();
+  else if (m.type === "copied") say("This phone keeps a copy of the page now: it opens from it when your Mac is away.");
+  // The page's own files changed on the Mac (an update): this copy's code is out of date.
+  else if (m.type === "page" && !typing()) location.reload();
+});
+
 
 function serverBanner(text, bad = false) {
   let b = $("#server-banner");
@@ -1371,7 +1593,7 @@ async function heartbeat() {
 async function beat() {
   let h = await askHealth();
   // One miss is often a blip, as when a phone wakes the page: ask once more first.
-  if (!h && !serverGone && !restarting) { await new Promise(r => setTimeout(r, 2000)); h = await askHealth(); }
+  if (!h && !serverGone && !restarting && !fromPhone) { await new Promise(r => setTimeout(r, 2000)); h = await askHealth(); }
   if (h) {
     if (restarting) return;   // restartPage() reloads once the new server answers
     if (HEALTH && h.started !== HEALTH.started) { location.reload(); return; }   // another server: this tab is out of date
@@ -1379,12 +1601,15 @@ async function beat() {
     const first = !HEALTH;
     HEALTH = h;
     if (first && copyState && copyState.restart) showCopy(copyState);   // now it can offer Restart
+    if (fromPhone) macBack();
+    else replaySoon();
     return;
   }
   if (restarting || serverGone) return;
   serverGone = true;
-  serverBanner(goneText(), true);
-  gonePoll = setInterval(heartbeat, 5000);
+  serverBanner(fromPhone ? copyText() : goneText(), !fromPhone);
+  // Off the Mac each miss costs the whole wait, so ask less often.
+  gonePoll = setInterval(heartbeat, ON_MAC ? 5000 : 15000);
 }
 
 async function restartPage(btn) {
@@ -1405,6 +1630,180 @@ async function restartPage(btn) {
     setTimeout(poll, 1500);
   };
   setTimeout(poll, 1500);
+}
+
+// ---------------------------------------------------------------- outbox
+// Off the Mac, a tick or a status change made while the Mac is away waits
+// here, on this device, and goes once the Mac answers: oldest first, one at
+// a time, each kept until the Mac takes it. Each carries what the page
+// showed when it was made, so the Mac takes it, finds it already holds, or
+// refuses it with what is there now, which becomes a card here to settle:
+// use this phone's, keep the Mac's, or drop it. A change sent again after
+// its answer was lost counts as done: a box already at its value, a status
+// already there, an undo whose line is already gone. Nothing else waits
+// here: verdicts, keys and runs need the Mac.
+
+const OUTBOX_KEY = "bs-job-search.outbox";
+const QUEUED = "Waiting for your Mac: this is kept on the phone and goes to the Mac once it answers.";
+const outboxEl = $("#outbox");
+let outbox = [];
+try { outbox = JSON.parse(localStorage.getItem(OUTBOX_KEY) || "[]"); if (!Array.isArray(outbox)) outbox = []; } catch (e) { outbox = []; }
+
+function editId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+function todayHere() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
+function markSaid(marks) {
+  const boxes = Object.entries(marks).filter(([k]) => k !== "skip_reason").map(([k, v]) => (v ? "" : "not ") + (k === "letter" ? "cover letter" : k));
+  return [...boxes, marks.skip_reason ? `reason “${marks.skip_reason}”` : null].filter(Boolean).join(", ") || "no change";
+}
+function statusSaid(c) { return c.undo ? "undo the last change" : c.status ? c.status + (c.date ? ` on ${c.date}` : "") : c.date ? `dated ${c.date}` : "note" in c ? (c.note ? `note “${c.note}”` : "note cleared") : "no change"; }
+
+function keepOutbox() {
+  try { localStorage.setItem(OUTBOX_KEY, JSON.stringify(outbox)); }
+  catch (e) { say("This phone could not keep the change: its storage is full or blocked.", true); }
+  showOutbox();
+}
+
+// Queue one change. A tick joins the one already waiting for the same entry:
+// later boxes replace earlier ones, and the first `expect` stays, since that
+// is what the page showed before anything waited here. A status given later
+// keeps the day it was given, not the Mac's day when it arrives.
+function enqueue(edit) {
+  if (edit.kind === "status" && edit.body.status && !edit.body.date) edit.body.date = todayHere();
+  const same = edit.kind === "mark" ? outbox.find(o => o.kind === "mark" && o.path === edit.path && !o.conflict) : null;
+  if (same) { Object.assign(same.body, edit.body, { expect: same.body.expect }); same.label = edit.label; same.at = edit.at; }
+  else outbox.push(edit);
+  keepOutbox();
+}
+
+// Send a change to the Mac, or queue it when the Mac is away: off the Mac, a
+// change the Mac did not answer waits rather than being lost.
+async function send(edit) {
+  const queued = () => { enqueue(edit); return Object.assign(new Error(QUEUED), { queued: true }); };
+  if (COPY && serverGone) throw queued();
+  try { return await api(edit.path, { method: "PUT", body: JSON.stringify(edit.body) }); }
+  catch (err) { throw COPY && !err.status ? queued() : err; }
+}
+
+function drop(edit) { outbox = outbox.filter(o => o !== edit); keepOutbox(); }
+
+// Send a refused change again, checked against what the Mac holds now.
+function useMine(o) {
+  const c = o.conflict.current;
+  if (o.kind === "mark") o.body.expect = { apply: !!c.apply, skip: !!c.skip, letter: !!c.letter, skip_reason: c.skip_reason || "" };
+  else { o.body.expect_last = c.last || ""; if ("expect_note" in o.body) o.body.expect_note = c.note || ""; }
+  delete o.conflict;
+  keepOutbox();
+  replaySoon(0);
+}
+
+let replaying = false, replayTimer = null;
+function replaySoon(ms = 300) { if (!outbox.length) return; clearTimeout(replayTimer); replayTimer = setTimeout(replay, ms); }
+
+// Oldest first, one at a time, while the Mac answers and neither a skill nor
+// an update holds its files. A refusal with what is there now becomes a card;
+// one by the Mac's own rules (a status that cannot go back) is shown, to
+// drop; a day the Mac has not reached yet waits for its midnight.
+async function replay() {
+  if (replaying || !COPY || serverGone || !outbox.some(o => !o.conflict)) return;
+  if (HEALTH && (HEALTH.working || HEALTH.git)) { replaySoon(10000); return; }
+  replaying = true;
+  let sent = 0;
+  try {
+    for (const edit of outbox.filter(o => !o.conflict)) {
+      try { await api(edit.path, { method: "PUT", body: JSON.stringify(edit.body) }); sent++; drop(edit); }
+      catch (err) {
+        if (!err.status) break;                                    // the Mac went away again: the rest waits
+        if (err.status === 409 && err.current) {
+          if (edit.kind === "status" && edit.body.undo && (err.current.last || "") === edit.before) { sent++; drop(edit); continue; }
+          edit.conflict = { message: err.message, current: err.current, moved: edit.kind === "mark" && "company" in err.current };
+        } else if (/after today/.test(err.message)) break;
+        else edit.conflict = { message: err.message, current: null };
+        keepOutbox();
+      }
+    }
+  } finally { replaying = false; }
+  if (sent) {
+    say(`Sent ${sent === 1 ? "a change" : `${sent} changes`} from this phone to your Mac.`);
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "refresh" });
+    refreshSoon();
+  }
+  showOutbox();
+}
+
+// The header's count, and the panel under it listing what waits, with a card
+// for each change the Mac refused.
+function showOutbox() {
+  const n = outbox.length, c = outbox.filter(o => o.conflict).length;
+  outboxEl.hidden = !n;
+  outboxEl.className = "usage " + (c ? "bad" : "warn");
+  outboxEl.textContent = c ? `${c} to settle` + (n > c ? `, ${n - c} waiting` : "") : `${n} waiting for your Mac`;
+  outboxEl.title = "Changes made on this phone that your Mac has not taken yet. Click to see them.";
+  const panel = $("#outbox-panel");
+  if (panel) { if (n) panel.replaceChildren(...outboxView()); else panel.remove(); }
+  else if (c) openOutbox();          // a refusal needs an answer: show it
+}
+function openOutbox() {
+  const open = $("#outbox-panel");
+  if (open) { open.remove(); return; }
+  const panel = el("div", { id: "outbox-panel", class: "outbox" }, ...outboxView());
+  const banner = $("#server-banner");
+  if (banner) banner.after(panel); else document.body.prepend(panel);
+}
+outboxEl.onclick = openOutbox;
+
+function outboxView() {
+  const items = outbox.map(o => {
+    const when = new Date(o.at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    const item = el("div", { class: "outbox-item" + (o.conflict ? " conflict" : "") }, el("b", {}, o.label), ` · ${when} `);
+    if (!o.conflict) { item.append(el("span", { class: "chip warn" }, serverGone ? "waiting for your Mac" : "sending")); return item; }
+    item.append(el("div", { class: "small" }, o.conflict.message));
+    const mine = o.conflict.current && !o.conflict.moved ? el("button", { class: "action small primary", onclick: () => useMine(o) }, "Use this phone's") : null;
+    item.append(el("div", { class: "toolbar" }, mine, el("button", { class: "action small", onclick: () => drop(o) }, mine ? "Keep the Mac's" : "Drop it")));
+    return item;
+  });
+  return [el("div", { class: "outbox-head" }, el("b", {}, "From this phone"),
+    el("span", { class: "muted small" }, "Changes your Mac has not taken yet. Removing the icon from the home screen loses them."),
+    el("button", { class: "action small", onclick: () => $("#outbox-panel").remove() }, "Close")), ...items];
+}
+showOutbox();
+
+// A tick or a status change applied to what the page holds, the way the
+// Mac would apply it: for the demos, and for a change waiting on this phone.
+function localMark(e, marks) {
+  for (const [k, field] of [["apply", "marked_apply"], ["skip", "marked_skip"], ["letter", "marked_letter"], ["skip_reason", "skip_reason"]]) {
+    if (k in marks) e[field] = marks[k];
+  }
+}
+function markCounts(d) {
+  const a = x => x.marked_apply, s = x => x.marked_skip, l = x => x.marked_letter, es = d.entries;
+  return {
+    date: d.date, entries: es.length,
+    apply: es.filter(x => a(x) && !s(x)).length,
+    skip: es.filter(x => s(x) && !a(x) && !l(x)).length,
+    unmarked: es.filter(x => !a(x) && !s(x) && !l(x)).length,
+    conflicts: es.filter(x => (s(x) && (a(x) || l(x))) || (l(x) && !a(x) && !s(x))).length,
+  };
+}
+// The select offers only the moves the tracker takes, and the date input
+// keeps the dates in order, so this needs none of the tracker's checks.
+function localStatus(data, change) {
+  const f = data.folders.find(x => x.company === change.company);
+  const r = f && f.roles.find(x => x.role === (change.role || ""));
+  if (!r) return null;
+  const h = r.history;
+  if (change.undo) h.pop();
+  if (change.status) h.push({ date: change.date || data.today, status: change.status });
+  else if (change.date && h.length) h[h.length - 1].date = change.date;
+  if ("note" in change) r.note = change.note.trim().replace(/\s+/g, " ");
+  const last = h[h.length - 1] || {};
+  const reached = Math.max(0, ...h.map(x => data.stage[x.status] || 0));
+  Object.assign(r, {
+    status: last.status || null, since: last.date || null, waiting: null,
+    applied: (h.find(x => x.status === "applied") || {}).date || null,
+    ended: data.ended.includes(last.status),
+    moves: data.statuses.filter(s => s !== last.status && (!(s in data.stage) || data.stage[s] > reached)),
+  });
+  return r;
 }
 
 // ----------------------------------------------------------------- start
@@ -1449,44 +1848,18 @@ function demoApi(path, opts = {}) {
 }
 
 // Change a status in the bundled listing, the way scripts/tracker.py does
-// without its checks: the select offers only the moves it takes, and the date
-// input keeps the dates in order.
+// without its checks (localStatus).
 function demoStatus(change) {
   const data = DEMO.get["/api/applications"];
-  const f = data.folders.find(x => x.company === change.company);
-  const r = f && f.roles.find(x => x.role === (change.role || ""));
-  if (!r) return Promise.reject(new Error("Not in this demo"));
-  const h = r.history;
-  if (change.undo) h.pop();
-  if (change.status) h.push({ date: data.today, status: change.status });
-  else if (change.date && h.length) h[h.length - 1].date = change.date;
-  if ("note" in change) r.note = change.note.trim().replace(/\s+/g, " ");
-  const last = h[h.length - 1] || {};
-  const reached = Math.max(0, ...h.map(x => data.stage[x.status] || 0));
-  Object.assign(r, {
-    status: last.status || null, since: last.date || null, waiting: null,
-    applied: (h.find(x => x.status === "applied") || {}).date || null,
-    ended: data.ended.includes(last.status),
-    moves: data.statuses.filter(s => s !== last.status && (!(s in data.stage) || data.stage[s] > reached)),
-  });
+  if (!localStatus(data, change)) return Promise.reject(new Error("Not in this demo"));
   return Promise.resolve(JSON.parse(JSON.stringify(data)));
 }
 
 // Tick a box in the bundled digest, and recount the way core.list_digests does.
 function demoMark(date, n, marks) {
   const d = DEMO.get["/api/digests/" + date];
-  const e = d.entries.find(x => x.n === n);
-  for (const [k, field] of [["apply", "marked_apply"], ["skip", "marked_skip"], ["letter", "marked_letter"], ["skip_reason", "skip_reason"]]) {
-    if (k in marks) e[field] = marks[k];
-  }
-  const a = x => x.marked_apply, s = x => x.marked_skip, l = x => x.marked_letter, es = d.entries;
-  const counts = {
-    date, entries: es.length,
-    apply: es.filter(x => a(x) && !s(x)).length,
-    skip: es.filter(x => s(x) && !a(x) && !l(x)).length,
-    unmarked: es.filter(x => !a(x) && !s(x) && !l(x)).length,
-    conflicts: es.filter(x => (s(x) && (a(x) || l(x))) || (l(x) && !a(x) && !s(x))).length,
-  };
+  localMark(d.entries.find(x => x.n === n), marks);
+  const counts = markCounts(d);
   Object.assign(DEMO.get["/api/digests"].find(x => x.date === date), counts);
   return counts;
 }
@@ -1502,7 +1875,10 @@ setInterval(() => { if (!document.hidden) loadCopy(); }, 15 * 60 * 1000);
 // While a tab has the page open, it says so once a minute, hidden or not, so
 // a server started with --idle-exit stays up until every tab is closed.
 if (!DEMO) { heartbeat(); setInterval(heartbeat, 60 * 1000); }
-setupState().then(s => {
+// Off the Mac the choice does not wait on a Mac that may be asleep: Digests
+// after a moment, and the Setup tab's count fills in when the Mac answers.
+const firstState = COPY ? Promise.race([setupState(), new Promise(r => setTimeout(() => r(null), 1500))]) : setupState();
+firstState.then(s => {
   const asked = location.hash.slice(1);
   showTab(TABS.includes(asked) ? asked : s && !s.ready ? "setup" : "digests");
 });

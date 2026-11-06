@@ -132,8 +132,11 @@ def read_digest(date: str) -> dict:
 
 
 def mark_entry(date: str, n: int, **marks) -> dict:
-    """Write one entry's boxes and return the digest's new counts."""
-    digest_applies.write_marks(digest_path(date), n, **marks)
+    """Write one entry's boxes and return the digest's new counts. `expect` and
+    `entry` pass through to digest_applies.write_marks, which refuses a change
+    made against an out-of-date view with tracker.Conflict."""
+    with writing():
+        digest_applies.write_marks(digest_path(date), n, **marks)
     return next(d for d in list_digests() if d["date"] == date)
 
 
@@ -154,6 +157,11 @@ def append_feedback(date: str) -> str:
     v = verdicts_section(date)
     if v["settle"]:
         raise ValueError("settle these first: " + "; ".join(v["settle"]))
+    with writing():
+        return _append_feedback(date, v)
+
+
+def _append_feedback(date: str, v: dict) -> str:
     path = os.path.join(ROOT, "profile", "feedback.md")
     existing = open(path, encoding="utf-8").read() if os.path.exists(path) else ""
     heading = v["section"].splitlines()[0]
@@ -269,7 +277,8 @@ def set_application_status(company: str, role: str = "", **change) -> dict:
     if folder is None or not any(r["role"] == role for r in folder["roles"]):
         raise ValueError(f"the Applications tab lists no application for "
                          f"{tracker.label(company, role)}")
-    tracker.set_status(company, role, allow_new=True, **change)
+    with writing():
+        tracker.set_status(company, role, allow_new=True, **change)
     return list_applications()
 
 
@@ -343,6 +352,35 @@ def read_profile_file(rel: str) -> str:
     if rel not in {p for p, _ in PROFILE_FILES}:
         raise ValueError(f"{rel} is not one of the profile files")
     return open(os.path.join(ROOT, rel), encoding="utf-8").read()
+
+
+# ------------------------------------------------------------ the phone's copy
+
+# What a phone keeps for reading while the Mac is away (ui/sw.js): the digests,
+# the applications and where each stands, and the profile files, as the page's
+# own routes answer them. Nothing else: never keys, contact details, run
+# transcripts, or what Setup and Runs show, which need the Mac anyway.
+SNAPSHOT_PATH = re.compile(r"^/api/(digests(/\d{4}-\d{2}-\d{2}(/verdicts)?)?|applications|profile(/.+)?)$")
+
+
+def snapshot() -> dict:
+    """Every read the phone keeps, by the route that answers it, with a tag
+    that changes when any of them does. ui/build_demo.py bundles the same
+    answers for a demo."""
+    import hashlib
+    answers = {
+        "/api/digests": list_digests(),
+        "/api/applications": list_applications(),
+        "/api/profile": list_profile_files(),
+    }
+    for d in answers["/api/digests"]:
+        answers[f"/api/digests/{d['date']}"] = read_digest(d["date"])
+        answers[f"/api/digests/{d['date']}/verdicts"] = verdicts_section(d["date"])
+    for p in answers["/api/profile"]:
+        if p["exists"]:
+            answers[f"/api/profile/{p['path']}"] = read_profile_file(p["path"])
+    body = json.dumps(answers, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return {"etag": hashlib.sha256(body.encode("utf-8")).hexdigest()[:24], "answers": answers}
 
 
 # -------------------------------------------------------------------- setup
@@ -919,6 +957,27 @@ class Stop(Exception):
 
 
 _git_lock = threading.Lock()                    # one fetch, update or backup at a time
+WRITE_WAIT = 5.0                                # seconds a page write waits for one
+
+
+@contextlib.contextmanager
+def writing():
+    """The page's own writes to tracked files (marks, statuses, verdicts) share
+    the git lock, so none lands in the middle of an update's merge or a backup's
+    commit. A write waits a few seconds for one to finish, then says so."""
+    if not _git_lock.acquire(timeout=WRITE_WAIT):
+        raise Stop("An update or a backup is changing this copy's files. "
+                   "Try again once it has finished.")
+    try:
+        yield
+    finally:
+        _git_lock.release()
+
+
+def git_busy() -> bool:
+    """Whether a fetch, update or backup is running: /api/health says, so a
+    phone sending changes can wait for it."""
+    return _git_lock.locked()
 _checked: dict = {"at": None, "error": None}    # the last fetch, for the page to show
 _started: dict = {"head": None}                 # the commit the running page started on
 _private: set = set()                           # addresses a check found private
@@ -1198,6 +1257,62 @@ def _status() -> dict:
 def _label(ref: str) -> str | None:
     m = RE_LABEL.fullmatch(_ok("log", "-1", "--format=%s", ref).strip())
     return m.group(1) if m else None
+
+
+# --------------------------------------------------------------- version
+
+RE_MERGED_PR = re.compile(r"Merge pull request #(\d+)\b")
+_version: dict = {"head": "", "value": None}
+
+
+def version() -> dict:
+    """Which version of the page this copy runs, for its title and header.
+
+    `label` is the template export it is at, "v1.55", from the nearest commit
+    whose subject is an export's label, with "+3" when it has three commits
+    since. A copy with no export in its history (the private repository the
+    exports are made from) is labeled by the latest pull request merged into
+    it, "#59", the number its next export would take. `commit` and `date` are
+    HEAD's, and `changed` says whether tracked code differs from it. All empty
+    in a folder that is not a git repository, such as a demo. Kept per HEAD,
+    so it is git's work once per commit."""
+    empty = {"label": "", "commit": "", "date": "", "changed": False}
+    try:
+        head = _rev("HEAD")
+    except Stop:
+        return empty
+    if not head:
+        return empty
+    changed = bool(_git("status", "--porcelain", "--untracked-files=no", "--", "ui", "scripts")
+                   .stdout.strip())
+    if _version["head"] == head and _version["value"]:
+        return {**_version["value"], "changed": changed}
+    label = ""
+    r = _git("log", "-1", "--format=%H%x00%s", "-E",
+             r"--grep=^BS-Job-Search-v[0-9]+(\.[0-9]+)*$", "HEAD")
+    if r.returncode == 0 and r.stdout.strip():
+        sha, subject = r.stdout.strip().split("\x00", 1)
+        m = RE_LABEL.fullmatch(subject.strip())
+        if m:
+            since = _count(f"{sha}..HEAD")
+            label = m.group(1) + (f"+{since}" if since else "")
+    if not label:
+        r = _git("log", "-1", "--format=%s", "-E", r"--grep=^Merge pull request #[0-9]+", "HEAD")
+        m = RE_MERGED_PR.match(r.stdout.strip()) if r.returncode == 0 else None
+        if m:
+            label = f"#{m.group(1)}"
+    date = _git("log", "-1", "--format=%cs", "HEAD").stdout.strip()
+    value = {"label": label, "commit": head[:7], "date": date}
+    _version.update(head=head, value=value)
+    return {**value, "changed": changed}
+
+
+def version_text(v: dict | None = None) -> str:
+    """The version as the page shows it: "v1.55 · 96cb983", with "edited"
+    when tracked code differs from that commit. "" outside git."""
+    v = v if v is not None else version()
+    parts = [p for p in (v["label"], v["commit"]) if p]
+    return " · ".join(parts) + (" · edited" if v["changed"] and parts else "")
 
 
 def _notes(rev: str, n: int = 20) -> list[dict]:
