@@ -20,7 +20,9 @@
 #      plan, including one from your employer, or an Anthropic Console account.
 #   4. Your copy of the template, in ~/job-search, and its Python packages.
 #   5. LaTeX, which typesets resumes: TinyTeX, in your own Library folder.
-#   6. Job Search on your Desktop, which starts the page and opens it.
+#   6. Job Search on your Desktop, which starts the page and opens it. It also
+#      answers the link bs-job-search://launch, which the Launch button on
+#      seanbattey.com uses.
 #   7. If you want it, Job Search on your phone too: an icon on its home screen
 #      that opens the page from anywhere (ui/phone.py, with Tailscale).
 #
@@ -43,12 +45,16 @@ README_URL=https://github.com/BatteyS/BS-Job-Search#get-started
 MIN_MACOS=13   # Claude Code's own floor: code.claude.com/docs/en/setup
 APP_NAME="Job Search"
 APP_ID=io.github.batteys.bs-job-search
+URL_SCHEME=bs-job-search   # the link bs-job-search://launch opens the app
 LOG="$HOME/Library/Logs/BS Job Search install.log"
 # Where uv and Claude Code may be when PATH does not say, as in a Terminal
 # opened before they were installed: their installers' own folder, and
 # Homebrew's on Apple silicon and on Intel. Separated like PATH; the tests
 # name their own.
 TOOL_DIRS=${BS_TOOL_DIRS:-$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin}
+# LaunchServices' own registration tool, which is not on PATH; the tests name
+# their own.
+LSREGISTER=${BS_LSREGISTER:-/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister}
 
 if [ -t 1 ]; then BOLD=$(printf '\033[1m'); DIM=$(printf '\033[2m'); PLAIN=$(printf '\033[0m')
 else BOLD= DIM= PLAIN=; fi
@@ -478,7 +484,18 @@ make_app() {
   cat >"$tmp/main.applescript" <<'EOF'
 -- Job Search, made by install.sh: opens the BS Job Search page, starting it
 -- first if it is not running. Contents/Resources/open.sh names the copy.
+-- A double-click and a bs-job-search:// link (the Launch button on
+-- seanbattey.com opens bs-job-search://launch) do the same thing.
 on run
+	launchJobSearch()
+end run
+
+on open location theURL
+	-- Whatever follows bs-job-search:// is ignored: any such link launches.
+	launchJobSearch()
+end open location
+
+on launchJobSearch()
 	set opener to (POSIX path of (path to me)) & "Contents/Resources/open.sh"
 	try
 		do shell script "/bin/sh " & quoted form of opener
@@ -487,7 +504,7 @@ on run
 			display dialog errorText buttons {"OK"} default button "OK" with title "Job Search" with icon caution
 		end if
 	end try
-end run
+end launchJobSearch
 EOF
   quiet osacompile -o "$app" "$tmp/main.applescript" || return 1
   # Job Search's own icon (ui/icon.py) in place of the script icon. The asset
@@ -515,10 +532,18 @@ fi
 exec /bin/sh "\$FOLDER/ui/launch.sh"
 EOF
   quiet plutil -replace CFBundleIdentifier -string "$APP_ID" "$app/Contents/Info.plist" || return 1
+  # The link bs-job-search://launch opens it (main.applescript's open location),
+  # once the bundle claims the scheme.
+  quiet plutil -insert CFBundleURLTypes -json \
+    "[{\"CFBundleURLName\":\"$APP_ID\",\"CFBundleURLSchemes\":[\"$URL_SCHEME\"]}]" \
+    "$app/Contents/Info.plist" || return 1
   # Editing the bundle broke osacompile's signature. Seal it again, or
   # Apple silicon may refuse to open it.
   quiet codesign --force --sign - "$app" || return 1
   rm -rf "$dest" && mv "$app" "$dest" || return 1
+  # Tell LaunchServices about it now, so the link works before it has been
+  # opened once (as with --no-open). Not fatal: opening it registers it too.
+  [ -x "$LSREGISTER" ] && quiet "$LSREGISTER" -f "$dest"
   rm -rf "$tmp"
 }
 

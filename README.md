@@ -1,3 +1,5 @@
+**Open your local dashboard: [127.0.0.1:8765](http://127.0.0.1:8765/)** (works while `uv run ui/server.py` is running)
+
 # BS-Job-Search
 
 A job scan that ranks postings against your own written profile, a resume builder that
@@ -34,7 +36,8 @@ your browser, and the Terminal window can be closed.
 
 From then on, double-click **Job Search** on your Desktop whenever you want the page. It
 opens in your browser with no Terminal window, and stops by itself ten minutes after you
-close the page's last tab.
+close the page's last tab. It also answers the link `bs-job-search://launch`, which the
+Launch button on [seanbattey.com](https://seanbattey.com) uses to open it.
 
 If the installer stops, it says why, and running the same line again picks up where it
 stopped: see [If the Mac installer stops](#if-the-mac-installer-stops). It needs macOS 13

@@ -565,21 +565,35 @@ def render(front: dict, body: str, density: dict) -> str:
 # -------------------------------------------------------------------- latex
 
 
+# What runs TeX. A host with no pdflatex replaces it, such as Python in a browser
+# (Pyodide) beside pdfTeX compiled to WebAssembly. Called as COMPILER(texpath,
+# build_dir), it must write <name>.pdf and <name>.log into build_dir as pdflatex
+# does, and return what TeX printed. Reading the result -- the error lines, the
+# page count -- stays here, so every host fits the page the same way.
+COMPILER = None
+
+
+def run_pdflatex(texpath: str, build: str) -> str:
+    """The default compiler: the pdflatex scripts/latex.py picks, one that has
+    every package, wherever it is installed, so PATH need not name it."""
+    r = subprocess.run(
+        [latex.pdflatex(), "-interaction=nonstopmode", "-halt-on-error",
+         "-file-line-error", "-output-directory", build, texpath],
+        capture_output=True, text=True, timeout=180)
+    return r.stdout or ""
+
+
 def compile_pdf(texpath: str) -> tuple[bool, int, str]:
-    """Build with the pdflatex scripts/latex.py picks: one that has every
-    package, wherever it is installed, so PATH need not name it."""
+    """Build one .tex into BUILD and count its pages."""
     os.makedirs(BUILD, exist_ok=True)
     try:
-        r = subprocess.run(
-            [latex.pdflatex(), "-interaction=nonstopmode", "-halt-on-error",
-             "-file-line-error", "-output-directory", BUILD, texpath],
-            capture_output=True, text=True, timeout=180)
+        printed = (COMPILER or run_pdflatex)(texpath, BUILD)
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         return (False, 0, f"pdflatex unavailable or timed out: {e}")
 
     pdf = os.path.join(BUILD, os.path.splitext(os.path.basename(texpath))[0] + ".pdf")
     if not os.path.exists(pdf):
-        err = "\n".join(l for l in (r.stdout or "").splitlines()
+        err = "\n".join(l for l in (printed or "").splitlines()
                         if re.search(r"^.*:\d+:|^!", l))[:1200]
         return (False, 0, err or "pdflatex produced no PDF")
     pages, why = page_count(pdf)

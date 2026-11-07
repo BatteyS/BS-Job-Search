@@ -2,7 +2,7 @@
 
 Each test gives the installer a home folder of its own and a folder of fake
 programs ahead of the real ones on PATH: Apple's (sw_vers, xcode-select,
-osacompile, plutil, codesign), uv and Claude Code and their installers (curl
+osacompile, plutil, codesign, lsregister), uv and Claude Code and their installers (curl
 hands out a script that puts the fake in ~/.local/bin), and a git that works
 only once the fake Command Line Tools are in. The template is a local git
 repository. So the installer's own decisions run for real, on any system,
@@ -50,10 +50,12 @@ esac""",
     "osacompile": """mkdir -p "$2/Contents/Resources/Scripts" "$2/Contents/MacOS" &&
 cp "$3" "$2/Contents/Resources/Scripts/main.applescript" && : >"$2/Contents/Info.plist\"""",
     "plutil": """case "$1" in
+  -insert) grep -q "^$2=" "$5" && exit 1; echo "$2=$4" >>"$5" ;;
   -replace) echo "$2=$4" >>"$5" ;;
   -extract) sed -n "s/^$2=//p" "$6" 2>/dev/null ;;
 esac""",
     "codesign": "exit 0",
+    "lsregister": 'echo "lsregister $*" >>"$STUB_STATE/calls"',
     "iconutil": 'echo "iconutil $*" >>"$STUB_STATE/calls"; : >"$5"',   # -c icns SET -o OUT
     "open": 'echo "open $*" >>"$STUB_STATE/calls"',
 }
@@ -111,8 +113,9 @@ def mac(tmp_path):
     env = {"HOME": str(home), "PATH": f"{stubs}:/usr/bin:/bin:/usr/sbin:/sbin",
            "TMPDIR": str(tmp_path), "STUB_STATE": str(state), "STUB_PYTHON": sys.executable,
            "REAL_GIT": shutil.which("git"), "BS_TEMPLATE_URL": str(template), "LANG": "C",
-           # Only the fakes: never this machine's own uv or Claude Code.
-           "BS_TOOL_DIRS": f"{home}/.local/bin"}
+           # Only the fakes: never this machine's own uv or Claude Code, and never
+           # its LaunchServices.
+           "BS_TOOL_DIRS": f"{home}/.local/bin", "BS_LSREGISTER": f"{stubs}/lsregister"}
 
     class Mac:
         pass
@@ -160,9 +163,16 @@ def test_a_fresh_mac_gets_everything_and_the_desktop_app(mac):
     app = mac.home / "Desktop" / APP
     opener = (app / "Contents/Resources/open.sh").read_text()
     assert f"FOLDER='{copy}'" in opener
-    assert f"CFBundleIdentifier={APP_ID}" in (app / "Contents/Info.plist").read_text()
+    plist = (app / "Contents/Info.plist").read_text()
+    assert f"CFBundleIdentifier={APP_ID}" in plist
     applescript = (app / "Contents/Resources/Scripts/main.applescript").read_text()
     assert "open.sh" in applescript and str(copy) not in applescript   # the path lives in open.sh
+    # The Launch button on seanbattey.com opens it through bs-job-search://launch:
+    # the bundle claims the scheme, the script answers the link, and LaunchServices
+    # hears of it without anyone opening it first.
+    assert f'"CFBundleURLName":"{APP_ID}","CFBundleURLSchemes":["bs-job-search"]' in plist
+    assert "on open location" in applescript
+    assert f"lsregister -f {app}" in r.calls
 
 
 def test_running_it_again_installs_nothing_and_remakes_the_app(mac):

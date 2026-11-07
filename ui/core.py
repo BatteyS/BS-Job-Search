@@ -563,7 +563,7 @@ def manifest(name: str = "BS Job Search") -> dict:
     screen: its name under the icon, the icon itself (ui/icon.py), and opening
     full screen. Every path is relative, so a demo in a subfolder works too."""
     return {"name": name, "short_name": "Job Search", "start_url": "./", "scope": "./",
-            "display": "standalone", "background_color": "#171716", "theme_color": "#2457a8",
+            "display": "standalone", "background_color": "#17120d", "theme_color": "#17120d",
             "icons": [{"src": "icon-192.png", "sizes": "192x192", "type": "image/png"},
                       {"src": "icon-512.png", "sizes": "512x512", "type": "image/png"},
                       {"src": "icon-512.png", "sizes": "512x512", "type": "image/png",

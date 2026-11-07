@@ -164,7 +164,12 @@ prep.md`, with each answer's sources quoted in full beneath it.
 
 `ui/server.py` serves a page on this machine only (`uv run ui/server.py`, or the
 `start.command` and `start.cmd` files that run it in a terminal, or Job Search on a Mac's
-Desktop) for setup and the work between skills.
+Desktop) for setup and the work between skills. It wears seanbattey.com's design, dark
+always as the site is: `ui/style.css` takes the site's color tokens by their own names, so
+a change to the site's palette carries over by name. The header carries the site's SB mark
+beside the name, an inline SVG drawn in the accent color, as the site's own header does,
+and the example demos' landing page has it too; the icon keeps a briefcase, in the same
+colors, so it still says which app it opens.
 Its Setup tab shows `doctor.py`'s checks, how far `/setup` has got, and a form that saves
 the API keys to their gitignored files; the page opens on it until the profile is written
 and reviewed. The rest is reading a digest and ticking its boxes, which it writes back
@@ -235,6 +240,11 @@ reports a new start time. A tab whose server does not answer says so, and picks 
 once it does: it reloads only when the answer comes from a new server, so a blip, such as
 a phone waking the page, loses nothing typed. A run's live output reconnects in place on
 its own, from the last line or event it had.
+
+The same applet answers the link `bs-job-search://launch`, which the Launch button on
+seanbattey.com uses: its Info.plist claims the scheme `bs-job-search` (`CFBundleURLTypes`),
+its `open location` handler does what a double-click does, and `install.sh` registers it
+with LaunchServices as it finishes, so the link works before the first double-click.
 
 Phone access (`ui/phone.py`, `sh install.sh --phone`) adds two things on the Mac, and
 leaves the page listening there alone. A LaunchAgent holds `127.0.0.1:8765` with launchd's

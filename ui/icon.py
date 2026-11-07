@@ -1,4 +1,4 @@
-"""Job Search's icon, drawn in code: a white briefcase on blue.
+"""Job Search's icon, drawn in code: a gold briefcase on espresso, in the page's colors.
 
     python ui/icon.py out.png 512          # one PNG, that many pixels square
     python ui/icon.py --iconset Folder.iconset   # the sizes macOS's iconutil takes
@@ -25,9 +25,9 @@ import struct
 import sys
 import zlib
 
-TOP = (0x2D, 0x63, 0xB8)      # the page's accent, a little lighter at the top
-BOTTOM = (0x1B, 0x42, 0x86)
-WHITE = (0xFF, 0xFF, 0xFF)
+TOP = (0x2C, 0x24, 0x1C)      # the page's background (style.css), a little lighter at the top
+BOTTOM = (0x17, 0x12, 0x0D)
+GOLD = (0xF2, 0xC1, 0x4E)     # the page's accent
 
 # The iconset iconutil makes a Mac icon from: name -> pixels.
 ICONSET = {"icon_16x16.png": 16, "icon_16x16@2x.png": 32, "icon_32x32.png": 32,
@@ -80,7 +80,7 @@ def png(size: int, tile: bool = False) -> bytes:
             ring = min(_cover(_box(x, y, *handle_out)), 1.0 - _cover(_box(x, y, *handle_in)))
             case = _cover(_box(x, y, *body)) * (1.0 - _cover(_box(x, y, *seam)))
             a = max(ring, case, _cover(_box(x, y, *clasp)))
-            row += bytes(round(bg[i] + (WHITE[i] - bg[i]) * a) for i in range(3))
+            row += bytes(round(bg[i] + (GOLD[i] - bg[i]) * a) for i in range(3))
             if tile:
                 row.append(round(255 * _cover(_box(x, y, *square))))
         rows.append(bytes(row))

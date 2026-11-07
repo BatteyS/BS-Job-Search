@@ -359,7 +359,7 @@ def test_the_icon_is_a_square_png_of_the_size_asked(size):
     assert len(raw) == size * (1 + 3 * size)        # a filter byte, then RGB, per row
 
 
-def test_the_icon_is_a_white_briefcase_on_blue_filled_to_the_edge():
+def test_the_icon_is_a_gold_briefcase_on_espresso_filled_to_the_edge():
     size = 192
     _, _, raw = _pixels(icon.png(size))
 
@@ -367,8 +367,8 @@ def test_the_icon_is_a_white_briefcase_on_blue_filled_to_the_edge():
         i = y * (1 + 3 * size) + 1 + 3 * x
         return tuple(raw[i:i + 3])
     corner = px(0, 0)
-    assert corner[2] > corner[0] + 60              # blue, to the corner: iOS rounds it
-    assert px(size // 2, int(size * 0.66)) == (255, 255, 255)    # the case
+    assert max(corner) < 0x30                      # dark, to the corner: iOS rounds it
+    assert px(size // 2, int(size * 0.66)) == icon.GOLD           # the case
     assert icon.png(size) == icon.png(size)         # drawn the same every time
 
 

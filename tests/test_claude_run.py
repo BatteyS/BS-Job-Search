@@ -343,6 +343,9 @@ def test_a_skill_starts_on_its_route_and_the_pick_is_checked(monkeypatch, tmp_pa
     monkeypatch.setattr(claude_run, "find_claude", lambda: ("/bin/true", "test"))
     monkeypatch.setattr(claude_run.ClaudeRun, "start", lambda self: self)
     monkeypatch.setattr(usage, "USAGE", str(tmp_path / "ui-usage.json"))
+    # No digests, so tailor-digest takes its own route rather than one sized to
+    # whatever the newest digest in this copy has marked (router.digest_route).
+    monkeypatch.setattr(core, "DIGESTS", str(tmp_path / "digests"))
     run = claude_run.start_skill("cover-letter", {"text": "https://example.com/job"})
     assert run.prompt == "/cover-letter https://example.com/job"
     assert (run.route["model"], run.route["effort"], run.route["auto"]) == ("opus", "high", True)

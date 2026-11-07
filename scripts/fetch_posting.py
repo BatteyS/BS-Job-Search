@@ -32,7 +32,13 @@ import sys
 from datetime import datetime
 from html import unescape
 
-import requests
+try:
+    import requests
+except ImportError:
+    # Python in a browser (Pyodide) has no requests. There the page fetches a
+    # posting itself and calls describe() or classify() below, which need no
+    # network.
+    requests = None
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/128.0 Safari/537.36")
@@ -166,31 +172,41 @@ def fetch_description(url: str, timeout: int = 30,
         return "", {"final_url": r.url}, "dead"
     if not r.ok:
         return "", {"final_url": r.url}, "error"
+    return describe(r.text, r.url, min_chars)
 
-    text, meta = from_json_ld(r.text)
+
+def describe(html: str, url: str, min_chars: int = 1200) -> tuple[str, dict, str]:
+    """(text, meta, status) for a posting page already fetched from `url`: the
+    extraction and the verdict of fetch_description(), without the network."""
+    text, meta = from_json_ld(html)
     meta["source"] = "json-ld"
-    if len(text) < min_chars and "linkedin.com/jobs" in r.url:
+    if len(text) < min_chars and "linkedin.com/jobs" in url:
         # Never the whole page here: its chrome would pass for a description.
-        posting = from_linkedin(r.text)
+        posting = from_linkedin(html)
         if len(posting) > len(text):
             text, meta["source"] = posting, "linkedin"
     elif len(text) < min_chars:
-        page = from_page(r.text)
+        page = from_page(html)
         if len(page) > len(text):
             text, meta["source"] = page, "page-text"
-    meta["final_url"] = r.url
+    meta["final_url"] = url
+    return text, meta, classify(text, meta, min_chars)
 
+
+def classify(text: str, meta: dict, min_chars: int = 1200) -> str:
+    """ok, short, or dead, for a posting's text and its metadata, however they
+    were read: from a page here, or from a job board's API by another host."""
     if any(re.search(p, text.lower()[:4000]) for p in DEAD_PATTERNS):
-        return text, meta, "dead"
+        return "dead"
 
     # validThrough is the employer's own expiry date, which beats guessing from
     # prose. Compared date-only so a same-day expiry is not called dead.
     expires = str(meta.get("valid_through", ""))[:10]
     if (re.fullmatch(r"\d{4}-\d{2}-\d{2}", expires)
             and expires < datetime.now().strftime("%Y-%m-%d")):
-        return text, meta, "dead"
+        return "dead"
 
-    return text, meta, ("ok" if len(text) >= min_chars else "short")
+    return "ok" if len(text) >= min_chars else "short"
 
 
 META_KEYS = ("title", "company", "date_posted", "valid_through", "employment_type")

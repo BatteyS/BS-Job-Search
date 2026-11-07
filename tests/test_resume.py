@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+import build_resume
 from helpers import example, needs_latex, run
 from build_resume import (check_dates, creates_gap, find_entry, master_format,
                           normalize_sections, parse_master, parse_span)
@@ -77,3 +78,28 @@ def test_examples_build_to_their_page_limit(name):
     assert code == 0, out
     pages = EXAMPLES[name][1]
     assert f"pages     : {pages} (limit {pages})" in out
+
+
+def test_a_compiler_hook_replaces_pdflatex(tmp_path, monkeypatch):
+    """A host without pdflatex runs TeX itself: compile_pdf calls its COMPILER and reads
+    the page count from the log it writes, as it does after pdflatex."""
+    calls = []
+
+    def compiler(texpath, build):
+        calls.append((texpath, build))
+        (tmp_path / "cv.pdf").write_bytes(b"%PDF-1.5 not a real one")
+        (tmp_path / "cv.log").write_text("Output written on cv.pdf (2 pages, 1234 bytes).\n")
+        return "This is pdfTeX\n"
+
+    monkeypatch.setattr(build_resume, "BUILD", str(tmp_path))
+    monkeypatch.setattr(build_resume, "COMPILER", compiler)
+    assert build_resume.compile_pdf(str(tmp_path / "cv.tex")) == (True, 2, "")
+    assert calls == [(str(tmp_path / "cv.tex"), str(tmp_path))]
+
+
+def test_a_compiler_hook_that_writes_no_pdf_reports_the_tex_errors(tmp_path, monkeypatch):
+    monkeypatch.setattr(build_resume, "BUILD", str(tmp_path))
+    monkeypatch.setattr(build_resume, "COMPILER",
+                        lambda texpath, build: "cv.tex:12: Undefined control sequence\nother\n")
+    ok, pages, err = build_resume.compile_pdf(str(tmp_path / "cv.tex"))
+    assert (ok, pages) == (False, 0) and err == "cv.tex:12: Undefined control sequence"

@@ -47,3 +47,25 @@ def test_other_boards_still_fall_back_to_the_page(serve):
           url="https://jobs.example.com/123")
     _, meta, status = fetch_posting.fetch_description("https://jobs.example.com/123")
     assert status == "ok" and meta["source"] == "page-text"
+
+
+def test_describe_reads_a_page_already_fetched_without_the_network(monkeypatch):
+    """Python in a browser has no requests: the page fetches, describe() reads."""
+    monkeypatch.setattr(fetch_posting, "requests", None)
+    desc = "<p>Own BESS projects from scoping to commissioning.</p>" * 40
+    page = ('<html><script type="application/ld+json">'
+            '{"@type": "JobPosting", "title": "Project Engineer", '
+            '"hiringOrganization": {"name": "Acme Solar"}, '
+            f'"description": "{desc}"}}</script></html>')
+    text, meta, status = fetch_posting.describe(page, "https://jobs.example.com/9")
+    assert status == "ok" and meta["source"] == "json-ld"
+    assert meta["company"] == "Acme Solar" and meta["final_url"] == "https://jobs.example.com/9"
+    assert "Own BESS projects" in text
+
+
+def test_classify_judges_text_read_from_a_board_api():
+    long = "Own BESS projects from scoping to commissioning. " * 40
+    assert fetch_posting.classify(long, {}) == "ok"
+    assert fetch_posting.classify("Own BESS projects.", {}) == "short"
+    assert fetch_posting.classify("This position has been filled. " + long, {}) == "dead"
+    assert fetch_posting.classify(long, {"valid_through": "2020-01-31T00:00:00"}) == "dead"
