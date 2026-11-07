@@ -369,15 +369,34 @@ def test_phone_access_set_up_before_is_checked_again(mac):
 # ------------------------------------------------------------ the launcher
 
 LAUNCH_STUBS = {
-    # The port's answer: a page started here, the agent's (as another copy), or nothing.
+    # The port's answer: a page started here, the agent's (as another copy), a
+    # connection nothing answers in time (curl's 28), or nothing.
     "curl": """for a in "$@"; do url=$a; done
 port=$(printf '%s' "$url" | sed -n 's|http://127.0.0.1:\\([0-9]*\\)/.*|\\1|p')
 if [ -f "$STUB_STATE/started-$port" ]; then printf '{"app":"BS Job Search","root":"%s"}' "$STUB_ROOT"; exit 0; fi
-if [ "$port" = "$BS_PORT" ] && [ "$STUB_AGENT" = another ]; then
-  printf '{"app":"BS Job Search","root":"/elsewhere"}'; exit 0
+if [ "$port" = "$BS_PORT" ]; then
+  case $STUB_AGENT in
+    another) printf '{"app":"BS Job Search","root":"/elsewhere"}'; exit 0 ;;
+    stuck|slow|starting)
+      if [ -f "$STUB_STATE/killed" ]; then printf '{"app":"BS Job Search","root":"%s"}' "$STUB_ROOT"; exit 0; fi
+      exit 28 ;;
+  esac
 fi
 exit 7""",
-    "launchctl": '[ "$1" = print ] && [ "$STUB_AGENT" != none ]',
+    # launchd's agent, its page pid 4242.
+    "launchctl": """case $1 in
+  print) [ "$STUB_AGENT" != none ] && printf '%s = {\\n\\tstate = running\\n\\tpid = 4242\\n}\\n' "$2" ;;
+  kill) echo "launchctl $*" >>"$STUB_STATE/calls"; touch "$STUB_STATE/killed" ;;
+  *) exit 1 ;;
+esac""",
+    # The agent's page: past its uv sync, and up a day, or five seconds when starting.
+    "ps": """case "$*" in
+  *command=*) echo "/copy/.venv/bin/python ui/server.py --launchd --idle-exit 10" ;;
+  *etime=*) if [ "$STUB_AGENT" = starting ]; then echo "   00:05"; else echo "01-05:15:11"; fi ;;
+esac""",
+    # Its listening socket, which a stuck page has closed and a starting one has yet to take.
+    "lsof": """case $STUB_AGENT in stuck|starting) exit 1 ;; esac
+echo 4242""",
     "uv": """echo "uv $*" >>"$STUB_STATE/calls"
 prev=; for a in "$@"; do [ "$prev" = --port ] && touch "$STUB_STATE/started-$a"; prev=$a; done
 sleep 2""",
@@ -414,3 +433,35 @@ def test_the_desktop_app_opens_the_page_whatever_the_agent_does(tmp_path, agent,
     else:
         assert "Phone access is not answering" in calls
         assert "did not answer as this copy" in log and "sh install.sh --phone" in log
+
+
+@pytest.mark.parametrize("agent", ["stuck", "slow", "starting"])
+def test_a_page_launchd_started_that_stopped_serving_is_ended_not_waited_on(tmp_path, agent):
+    """A page that closed its port without exiting holds launchd's port for
+    good, so the launcher ends it, and launchd starts the page afresh for the
+    next request, rather than waiting two minutes and opening a page elsewhere.
+    A page that holds its socket is never ended, however slow (it may be
+    working), and neither is one still starting."""
+    home, state = tmp_path / "home", tmp_path / "state"
+    stubs = home / ".local" / "bin"
+    stubs.mkdir(parents=True)
+    state.mkdir()
+    for name, body in LAUNCH_STUBS.items():
+        script(stubs / name, body)
+    env = {"HOME": str(home), "PATH": f"{stubs}:/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "C",
+           "STUB_STATE": str(state), "STUB_ROOT": os.path.realpath(ROOT), "STUB_AGENT": agent,
+           "BS_PORT": "18765", "BS_AGENT": "test.agent"}
+    r = subprocess.run(["sh", os.path.join(ROOT, "ui", "launch.sh")], env=env, capture_output=True,
+                       text=True, timeout=60, start_new_session=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    calls = (state / "calls").read_text()
+    log = (home / "Library/Logs/BS Job Search.log").read_text()
+    if agent == "stuck":
+        assert f"launchctl kill SIGKILL gui/{os.getuid()}/test.agent" in calls
+        assert "open http://127.0.0.1:18765/" in calls
+        assert "pid 4242) had stopped serving" in log
+        assert "osascript" not in calls and "did not answer" not in log
+    else:
+        assert "launchctl kill" not in calls
+        assert "open http://127.0.0.1:18766/" in calls
+        assert "Getting the page ready" in calls and "did not answer as this copy" in log

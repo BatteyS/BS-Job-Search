@@ -98,6 +98,22 @@ probe() {
   if [ -n "$root" ] && [ "$root" -ef "$ROOT" ]; then echo this; else echo busy; fi
 }
 
+# Whether the page launchd started has stopped serving without exiting: it is
+# server.py by now (past its uv sync), up over a minute, and holds no listening
+# socket. launchd starts no other page while it lives, and queues every request
+# to the port for it, so nothing answers there until it is gone. A page from
+# before 2026-11-07 could stay like that for good after its idle exit, with a
+# skill waiting for a reply. Sets pid.
+stuck_agent() {
+  pid=$(launchctl print "gui/$(id -u)/$AGENT" 2>/dev/null |
+        sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p' | head -n 1)
+  [ -n "$pid" ] || return 1
+  case $(ps -o command= -p "$pid" 2>/dev/null) in *ui/server.py*) ;; *) return 1 ;; esac
+  case $(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' ') in ''|00:*) return 1 ;; esac
+  command -v lsof >/dev/null 2>&1 || return 1
+  [ -z "$(lsof -t -a -p "$pid" -iTCP -sTCP:LISTEN 2>/dev/null)" ]
+}
+
 open_page() {
   open "http://127.0.0.1:$1/" 2>/dev/null ||
     fail "The page is running, but no browser opened. Open http://127.0.0.1:$1/ in yours."
@@ -170,7 +186,15 @@ if launchctl print "gui/$(id -u)/$AGENT" >/dev/null 2>&1; then
       exit 0
     fi
     [ "$got" = free ] && break     # launchd is not listening after all
-    [ "$wait" = 3 ] && notify "$READYING"
+    [ "$wait" = 3 ] || continue
+    if stuck_agent; then
+      # End it, and launchd starts the page afresh for the next request, which
+      # is the probe below: a second or two, not two minutes of waiting first.
+      printf '%s %s\n' "$(date '+--- %Y-%m-%d %H:%M:%S')" "launchd's page (pid $pid) had stopped serving without exiting, so it was ended, and launchd starts the page again." >>"$LOG"
+      launchctl kill SIGKILL "gui/$(id -u)/$AGENT" >/dev/null 2>&1
+    else
+      notify "$READYING"
+    fi
   done
   printf '%s %s\n' "$(date '+--- %Y-%m-%d %H:%M:%S')" "launchd's agent ($AGENT) did not answer as this copy ($got), so the page starts here as usual. To set phone access up again: cd '$ROOT' && sh install.sh --phone" >>"$LOG"
   notify "Phone access is not answering, so the page opens on this Mac alone. To fix it, run sh install.sh --phone in this copy's folder."

@@ -369,6 +369,25 @@ def test_runs_stream_output_and_check_their_arguments(repo, monkeypatch):
         runs.get("nope")
 
 
+def test_a_quiet_run_gives_its_follower_a_beat_and_loses_nothing():
+    """With a beat, following a run that has nothing new yields BEAT, so the
+    stream reading it gets a turn, and goes on from where it was."""
+    import threading
+    changed = threading.Condition()
+    items, state = ["one"], {"active": True}
+    got = core.follow(changed, items, lambda: state["active"], beat=0.05)
+    assert next(got) == (0, "one")
+    assert next(got) is core.BEAT
+    assert next(got) is core.BEAT
+    with changed:
+        items.append("two")
+        changed.notify_all()
+    assert next(got) == (1, "two")
+    state["active"] = False
+    assert next(got) is None
+    assert list(core.follow(changed, items, lambda: False, start=1)) == [(1, "two"), None]
+
+
 # ------------------------------------------------------------------ the port
 # Small servers on loopback, standing in for what might hold the page's port.
 
@@ -540,6 +559,98 @@ def test_the_copys_routes_are_behind_the_same_check(tmp_path, monkeypatch):
         assert _ask(server.app, method, path, {"host": "rebind.attacker.example:8765"}) == 403
     assert _ask(server.app, "POST", "/api/copy/update", page) == 409
     assert _ask(server.app, "POST", "/api/copy/link", page) == 409
+
+
+# ------------------------------------------------------------------ stopping
+# Under launchd (ui/phone.py), a page that has stopped serving but not exited
+# holds the port: launchd starts no other while it lives, and queues every
+# request for it. Job Search on the Desktop waited two minutes on one before
+# opening a page elsewhere, and the phone got nothing.
+
+STOPPING = """
+import os, sys, threading
+root, index, port = sys.argv[1:4]
+sys.path.insert(0, os.path.join(root, "ui"))
+import claude_run, server
+claude_run.INDEX = index
+run = claude_run.ClaudeRun("setup", "/setup", "/bin/true")
+run.id = "waiting"
+run._set_status("idle")   # its turn is over, and it waits for a reply
+server.runs.add(run)
+server.app.get("/api/stuck")(lambda: threading.Event().wait())   # never returns
+# The real beat and deadline (2 and 30 seconds) scaled down, the deadline still
+# many beats long: a stream cancelled just after a beat ends a whole beat later.
+# With both at 2, the quit below, which lands about on a beat, could cut off the
+# stream as though it would never end.
+server.STREAM_BEAT = 0.25
+server.EXIT_DEADLINE = 2
+sys.argv = ["server.py", "--no-open", "--port", port]
+server.main()
+"""
+
+
+def _free_port() -> int:
+    import socket
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="a real server, stopped and timed")
+@pytest.mark.parametrize("tab", ["closed", "left open", "stuck"])
+def test_the_page_stops_though_a_stream_follows_a_run_that_waits(tmp_path, tab):
+    """A stream following a skill that waits for a reply has nothing to send
+    until the reply comes, which may be never. Asked to stop, the page stops
+    within seconds all the same, with the tab that opened the stream closed or
+    still open. A request that never ends is cut off at the deadline."""
+    pytest.importorskip("fastapi")
+    import socket
+    import time
+    import urllib.request
+    port = _free_port()
+    base = f"http://127.0.0.1:{port}"
+    proc = subprocess.Popen([sys.executable, "-c", STOPPING, ROOT, str(tmp_path / "runs.json"),
+                             str(port)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    stream = None
+    try:
+        for _ in range(150):
+            try:
+                urllib.request.urlopen(base + "/api/health", timeout=1).read()
+                break
+            except OSError:
+                assert proc.poll() is None, proc.stdout.read()
+                time.sleep(0.1)
+        stream = socket.create_connection(("127.0.0.1", port), timeout=5)
+        stream.sendall(f"GET /api/runs/waiting/stream HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n"
+                       .encode())
+        got = b""
+        while b"data:" not in got:      # its first event, then nothing more
+            got += stream.recv(4096)
+        assert b" 200 " in got
+        time.sleep(0.5)
+        if tab == "closed":
+            stream.close()
+        if tab == "stuck":
+            stuck = socket.create_connection(("127.0.0.1", port), timeout=5)
+            stuck.sendall(f"GET /api/stuck HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n".encode())
+        quit_ = urllib.request.Request(base + "/api/quit", data=b"{}", method="POST",
+                                       headers={"Content-Type": "application/json"})
+        assert json.loads(urllib.request.urlopen(quit_, timeout=5).read()) == {"quitting": True}
+        asked = time.monotonic()
+        try:
+            proc.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            pytest.fail("the page had not stopped 30 seconds after it was asked to")
+        assert time.monotonic() - asked < 15
+        printed = proc.stdout.read()
+        assert ("ending it" in printed) == (tab == "stuck"), printed
+    finally:
+        if stream is not None:
+            stream.close()
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+        proc.stdout.close()
 
 
 def test_idle_exit_waits_for_silence_and_for_runs_to_end():

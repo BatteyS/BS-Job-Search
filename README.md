@@ -46,6 +46,34 @@ what a browser downloads and refuses to open `start.command` from it.
 
 ### On Windows
 
+Open PowerShell (in the Start menu, type PowerShell), paste this line, and press Enter:
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/BatteyS/BS-Job-Search/main/install.ps1 | iex"
+```
+
+It installs what is missing, all of it for you alone, with no administrator: Git for
+Windows (through winget, Windows' own installer), uv, Claude Code and its sign-in, your
+copy of this template in `%USERPROFILE%\job-search`, and **Job Search** in the Start menu
+and on your Desktop. It says what it is doing as it goes. LaTeX, for the resumes, it finds
+if it is there; if not, it says what to install (MiKTeX, step 5 below), which can wait
+until your first resume. When it finishes, the page is open in your browser, and the
+PowerShell window can be closed.
+
+From then on, open **Job Search** from the Start menu or the Desktop whenever you want the
+page. Its window waits, minimized in the taskbar, while the page runs, and closes by
+itself ten minutes after you close the page's last tab. It also answers the link
+`bs-job-search://launch`, which the Launch button on [seanbattey.com](https://seanbattey.com)
+uses to open it.
+
+If the installer stops, it says why, and running the same line again picks up where it
+stopped: see [If the Windows installer stops](#if-the-windows-installer-stops). It needs
+64-bit Windows 10 (version 1809 or newer) or Windows 11.
+
+#### On Windows, by hand
+
+The same, one step at a time, if you would rather:
+
 1. Install [Git for Windows](https://git-scm.com/downloads/win).
 2. Install [uv](https://docs.astral.sh/uv/), which runs the Python this workflow is
    pinned to without touching any other Python on the machine. In PowerShell:
@@ -278,6 +306,27 @@ Keep the copy out of a Documents or Desktop folder that iCloud Drive syncs: iClo
 its Python packages and git files to the cloud to save space, which breaks them.
 `~/job-search` is not synced.
 
+### If the Windows installer stops
+
+It says why, and running the same line again picks up where it stopped. Everything it ran
+is in `%LOCALAPPDATA%\BS Job Search\install.log`.
+
+| What happens | What to do |
+|---|---|
+| It needs Windows 10 version 1809 or newer, 64-bit | Claude Code does not run on older or 32-bit Windows. Settings, Windows Update says whether this PC can take a newer one. |
+| The window runs as administrator | Open PowerShell the usual way, not with Run as administrator, and paste the line again: everything goes into your own user folder. |
+| winget is missing, so git cannot be installed | Some Windows 10 PCs lack it. Install [Git for Windows](https://git-scm.com/downloads/win) (its standard choices are fine), or App Installer from the Microsoft Store, which brings winget, then run the line again. |
+| `-File install.ps1` says running scripts is disabled | Your organization sets PowerShell's policy. Use the one line instead, which runs no script file. |
+| On a company network | One that inspects HTTPS breaks uv's downloads; the installer notices, and switches uv to Windows' own certificates (`native-tls = true` in `%APPDATA%\uv\uv.toml`). |
+| Job Search does not open the page | Its window, minimized in the taskbar, says why: click it. |
+| Job Search cannot find its folder | The copy was moved or renamed: run `powershell -ExecutionPolicy Bypass -File install.ps1` in its folder. |
+| The browser asks whether to open the link | That is the Launch button on seanbattey.com: allow it. The browser may name Windows PowerShell, which runs Job Search's opener. |
+| The browser cannot reach 127.0.0.1 | The page stopped, as it does ten minutes after its last tab closes. Open Job Search again. |
+
+Keep the copy out of a folder OneDrive syncs, as Documents and the Desktop often are: it
+can move the Python packages and git files to the cloud to save space, which breaks them.
+`%USERPROFILE%\job-search` is not synced.
+
 ## The details
 
 Nothing below is needed to get going. It is the reference for how each piece works,
@@ -307,6 +356,39 @@ In order:
 It runs on Apple silicon or Intel. Run the same line again whenever you like: what is
 done is skipped, and Job Search is made again, which is how to bring it back. In a copy
 you moved, run `sh install.sh` in its folder instead, which points Job Search at it.
+
+### What the Windows installer does
+
+In order:
+
+1. Git for Windows, which brings git, through winget, for you alone (`--scope user`, in
+   `%LOCALAPPDATA%\Programs\Git`). Without winget, the installer says where to get it.
+2. [uv](https://docs.astral.sh/uv/), with Astral's own installer, in
+   `%USERPROFILE%\.local\bin`.
+3. Claude Code, with its own Windows installer, then its sign-in, in your browser. The
+   installer asks which kind of account you have, or lets you sign in later.
+4. Your copy of this template, in `%USERPROFILE%\job-search`, and its Python packages.
+5. LaTeX: whatever `scripts/install_latex.py` finds or can do. On Windows it installs
+   nothing itself, so without a TeX it says to install MiKTeX.
+6. Job Search, in the Start menu and on your Desktop: a shortcut to the copy's `start.cmd`,
+   with Job Search's icon, run minimized with `--idle-exit 10`. Then the link
+   `bs-job-search://launch`, for you alone, under
+   `HKEY_CURRENT_USER\Software\Classes\bs-job-search`: it runs
+   `%LOCALAPPDATA%\BS Job Search\open.ps1`, which starts `start.cmd` the same way and
+   ignores whatever the link carries.
+
+It runs on x64 or ARM64, in Windows PowerShell 5.1 or PowerShell 7. Run the same line
+again whenever you like: what is done is skipped, and Job Search's shortcuts and link are
+made again, which is how to bring them back. In a copy you moved, run
+`powershell -ExecutionPolicy Bypass -File install.ps1` in its folder instead, which points
+them at it. Its options are `-Dir FOLDER`, `-NoLatex` and `-NoOpen`; to give them to the
+one line, write it this way:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BatteyS/BS-Job-Search/main/install.ps1))) -NoLatex
+```
+
+Job Search on your phone ([On your phone](#on-your-phone)) is for Macs only.
 
 ### Setup without the page
 
@@ -643,7 +725,8 @@ git fetch template
 git checkout template/main -- .claude .github scripts presets tests examples ui Resume/LaTeX \
     content/contact.example.md content/story.example.md sources/adzuna.example.yaml \
     sources/usajobs.example.yaml pyproject.toml uv.lock .python-version .gitattributes \
-    .gitignore CLAUDE.md README.md ARCHITECTURE.md LICENSE start.command start.cmd install.sh
+    .gitignore CLAUDE.md README.md ARCHITECTURE.md LICENSE start.command start.cmd install.sh \
+    install.ps1
 ```
 
 That is every file the template ships, the list `scripts/export_template.py` exports. It

@@ -38,7 +38,8 @@
 #   --no-open      do not open the page at the end
 #   --phone        set up Job Search on your phone, without asking first
 #
-# Only macOS for now. On Windows or Linux, follow Get started in README.md.
+# Only macOS. On Windows, install.ps1 is the same in one step; on Linux, follow
+# Get started in README.md.
 
 TEMPLATE_URL=${BS_TEMPLATE_URL:-https://github.com/BatteyS/BS-Job-Search.git}
 README_URL=https://github.com/BatteyS/BS-Job-Search#get-started
@@ -95,7 +96,7 @@ wait_for_return() {
 # ----------------------------------------------------------------- checks
 
 preflight() {
-  [ "$(uname -s)" = Darwin ] || die "This installer is for macOS. On Windows or Linux, follow Get started in README.md: $README_URL"
+  [ "$(uname -s)" = Darwin ] || die "This installer is for macOS. On Windows, Get started in README.md has the PowerShell line that does the same; on Linux, follow Get started there: $README_URL"
   [ "$(id -u)" != 0 ] || die "Run it as yourself, without sudo. Everything goes into your own home folder, and what sudo puts there belongs to root, which breaks updates later."
 
   # This run's log, begun only now that it is surely the user's own.

@@ -18,6 +18,7 @@ The routes are thin. What they do is in core.py, which the tests cover.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import sys
@@ -39,7 +40,42 @@ except ImportError:
 import core  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-app = FastAPI(title="BS Job Search", docs_url=None, redoc_url=None)
+
+# How the page stops, whether idle, asked to (Restart, ui/phone.py's quit) or
+# signalled: uvicorn closes its port, waits up to SHUTDOWN_GRACE seconds for
+# the requests it has, then cancels them. A run's stream ends at its next beat,
+# as only then does the thread reading it come back to be cancelled. Anything
+# else that would keep the process alive is cut off EXIT_DEADLINE seconds after
+# that, which must stay many beats long: a stream cancelled just after a beat
+# takes a whole beat more to end, and is not stuck. It matters most under
+# launchd (ui/phone.py): a page that has closed its port but lives on holds it,
+# as launchd starts no other while it lives and queues every request for it,
+# the Desktop's and the phone's alike.
+STREAM_BEAT = 2          # seconds
+SHUTDOWN_GRACE = 3
+EXIT_DEADLINE = 30
+
+
+@contextlib.asynccontextmanager
+async def _lifespan(_app):
+    yield
+    # Past the grace: the port is closed, and every request ended or cancelled.
+    # Only for a server that main() runs, never a test's app.
+    if SERVER is not None:
+        _exit_by_deadline(EXIT_DEADLINE)
+
+
+def _exit_by_deadline(seconds: float) -> None:
+    def cut_off():
+        print(f"The page had not stopped {seconds:g} seconds after closing its port; "
+              "ending it.", flush=True)
+        os._exit(1)
+    timer = threading.Timer(seconds, cut_off)
+    timer.daemon = True
+    timer.start()
+
+
+app = FastAPI(title="BS Job Search", docs_url=None, redoc_url=None, lifespan=_lifespan)
 runs = core.Runs()
 idle = core.Idle()
 # Set by main(): the restart route needs the port to start again on, and the
@@ -431,11 +467,16 @@ def get_run(run_id: str):
 @app.get("/api/runs/{run_id}/stream")
 def stream_run(run_id: str, start: int = 0):
     """The run's lines (a script) or events (a skill) as server-sent events,
-    then one `done` event."""
+    then one `done` event. A comment every STREAM_BEAT seconds with nothing
+    new, which EventSource ignores, ends the stream soon after its page has
+    gone, or the server stops."""
     run = _or_404(runs.get, run_id)
 
     def events():
-        for item in run.follow(start):
+        for item in run.follow(start, beat=STREAM_BEAT):
+            if item is core.BEAT:
+                yield ": beat\n\n"
+                continue
             if item is None:
                 yield f"event: done\ndata: {run.status}\n\n"
                 return
@@ -594,7 +635,8 @@ def main() -> None:
         threading.Timer(0.8, webbrowser.open, [url]).start()
     print(f"BS Job Search at {url}  (this machine only; Ctrl-C stops it)", flush=True)
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=args.port,
-                                           log_level="warning"))
+                                           log_level="warning",
+                                           timeout_graceful_shutdown=SHUTDOWN_GRACE))
     PORT, SERVER = args.port, server
     watch_idle(server, args.idle_exit)
     server.run()
@@ -622,7 +664,8 @@ def serve_for_launchd(idle_minutes: float) -> None:
     PORT = socks[0].getsockname()[1]
     core.remember_start()
     print(f"BS Job Search at http://127.0.0.1:{PORT}  (started by launchd)", flush=True)
-    SERVER = uvicorn.Server(uvicorn.Config(app, log_level="warning"))
+    SERVER = uvicorn.Server(uvicorn.Config(app, log_level="warning",
+                                           timeout_graceful_shutdown=SHUTDOWN_GRACE))
     watch_idle(SERVER, idle_minutes)
     SERVER.run(sockets=socks)
 

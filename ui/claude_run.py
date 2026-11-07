@@ -428,22 +428,11 @@ class ClaudeRun:
                 "pending": self.pending, "lines": len(self.events), "route": self.route,
                 "tokens": self.tokens, "cost": self.cost}
 
-    def follow(self, start: int = 0):
-        """Yield (index, event) from `start`, then None once the run has ended."""
-        i = start
-        while True:
-            with self.changed:
-                while i >= len(self.events) and self.status in ACTIVE:
-                    self.changed.wait(timeout=0.5)
-                if i < len(self.events):
-                    item = self.events[i]
-                elif self.status not in ACTIVE:
-                    yield None
-                    return
-                else:
-                    continue
-            yield i, item
-            i += 1
+    def follow(self, start: int = 0, beat: float = 0):
+        """Yield (index, event) from `start`, then None once the run has ended.
+        With `beat`, core.BEAT too, after each `beat` seconds with nothing new:
+        a run that waits for a reply is active, and may wait for good."""
+        return core.follow(self.changed, self.events, lambda: self.status in ACTIVE, start, beat)
 
     def answer(self, card_id: str, decision: str, message: str = "",
                answers: dict | None = None) -> None:

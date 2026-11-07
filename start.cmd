@@ -1,6 +1,9 @@
 @echo off
 rem Opens the page: double-click this file in File Explorer. Keep the window
-rem open while you use the page; closing it stops the page.
+rem open while you use the page; closing it stops the page. Job Search in the
+rem Start menu (install.ps1 makes it) runs this, minimized, with --idle-exit 10,
+rem so the page stops and the window closes ten minutes after its last tab.
+title Job Search
 cd /d "%~dp0"
 set "UV=uv"
 where uv >nul 2>nul || set "UV=%USERPROFILE%\.local\bin\uv.exe"

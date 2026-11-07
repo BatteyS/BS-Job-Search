@@ -676,6 +676,42 @@ if platform.system() != "Windows":   # where Windows has MiKTeX instead
                          "with no password", lambda p: _script("install_latex"))
 
 
+# What follow() yields when a run has had nothing new for `beat` seconds.
+BEAT = "beat"
+
+
+def follow(changed: threading.Condition, items: list, active, start: int = 0, beat: float = 0):
+    """Yield (index, item) from `start` as `items` grows, then None once
+    `active()` is false and every item is out. Writers append under `changed`
+    and notify it.
+
+    With `beat`, also yield BEAT after each `beat` seconds with nothing new.
+    server.py's stream reads this from a worker thread, which nothing can
+    cancel: only at a beat does that thread come back, to find the page gone
+    or the server stopping. Without one, a stream following a skill that waits
+    for a reply never came back, and kept the server from ever exiting."""
+    i = start
+    while True:
+        with changed:
+            quiet = time.monotonic()
+            while i >= len(items) and active():
+                left = beat - (time.monotonic() - quiet) if beat else 0.5
+                if left <= 0:
+                    break
+                changed.wait(timeout=min(left, 0.5))
+            if i < len(items):
+                item = (i, items[i])
+            elif not active():
+                item = None
+            else:
+                item = BEAT
+        yield item
+        if item is None:
+            return
+        if item is not BEAT:
+            i += 1
+
+
 class Run:
     """One command's output as it arrives. Readers wait on `changed`."""
 
@@ -715,22 +751,10 @@ class Run:
         code = proc.wait()
         self._finish(code, "done" if code == 0 else "failed")
 
-    def follow(self, start: int = 0):
-        """Yield (index, line) from `start`, then None once the run has ended."""
-        i = start
-        while True:
-            with self.changed:
-                while i >= len(self.lines) and self.status == "running":
-                    self.changed.wait(timeout=0.5)
-                if i < len(self.lines):
-                    line = self.lines[i]
-                elif self.status != "running":
-                    yield None
-                    return
-                else:
-                    continue
-            yield i, line
-            i += 1
+    def follow(self, start: int = 0, beat: float = 0):
+        """Yield (index, line) from `start`, then None once the run has ended.
+        With `beat`, BEAT too, after each `beat` seconds with nothing new."""
+        return follow(self.changed, self.lines, lambda: self.status == "running", start, beat)
 
     def summary(self) -> dict:
         return {"id": self.id, "name": self.name, "kind": "script", "status": self.status,

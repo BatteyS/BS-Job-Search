@@ -148,6 +148,7 @@ prep.md`, with each answer's sources quoted in full beneath it.
 | Tool | Does |
 |---|---|
 | `install.sh` | Sets up a Mac in one step: Apple's Command Line Tools (for git), uv, Claude Code and its sign-in, a clone of the template in `~/job-search` and its packages, LaTeX, and Job Search on the Desktop. Only what is missing, with no password, and safe to run again. |
+| `install.ps1` | The same on Windows, from one line in PowerShell: Git for Windows (through winget, for the user alone), uv, Claude Code and its sign-in, the clone and its packages, a check for LaTeX, and Job Search in the Start menu and on the Desktop, with the link. No administrator, and safe to run again. |
 | `/setup` | Interviews a new user and writes their profile, starting with the resume facts. |
 | `doctor.py` | Checks the machine, the profile, and the keys, and says what to fix. |
 | `install_latex.py` | Installs LaTeX without a password: TinyTeX in the user's own folder, with the packages the templates load, unless a TeX that has them is already there. `latex.py` finds that TeX wherever it is, for the builders and `doctor.py`. |
@@ -168,8 +169,9 @@ Desktop) for setup and the work between skills. It wears seanbattey.com's design
 always as the site is: `ui/style.css` takes the site's color tokens by their own names, so
 a change to the site's palette carries over by name. The header carries the site's SB mark
 beside the name, an inline SVG drawn in the accent color, as the site's own header does,
-and the example demos' landing page has it too; the icon keeps a briefcase, in the same
-colors, so it still says which app it opens.
+and the example demos' landing page has it too. Clicking the mark takes
+the same tab to seanbattey.com's home page, with no new tab or window; the icon keeps a
+briefcase, in the same colors, so it still says which app it opens.
 Its Setup tab shows `doctor.py`'s checks, how far `/setup` has got, and a form that saves
 the API keys to their gitignored files; the page opens on it until the profile is written
 and reviewed. The rest is reading a digest and ticking its boxes, which it writes back
@@ -246,14 +248,38 @@ seanbattey.com uses: its Info.plist claims the scheme `bs-job-search` (`CFBundle
 its `open location` handler does what a double-click does, and `install.sh` registers it
 with LaunchServices as it finishes, so the link works before the first double-click.
 
+On Windows, `install.ps1` makes Job Search a shortcut, in the Start menu and on the
+Desktop, to the copy's own `start.cmd`, run minimized with `--idle-exit 10`: that window
+is the page's, so it waits in the taskbar while the page runs and closes when the page
+stops itself. It carries Job Search's icon, an `.ico` that `ui/icon.py --ico` draws. The
+link is a URL protocol registered for the user alone (`HKCU\Software\Classes\bs-job-search`,
+with `URL Protocol`), whose command runs `%LOCALAPPDATA%\BS Job Search\open.ps1` with
+`powershell -File`. That file names the copy, as `open.sh` does in the Mac's applet, and
+starts `start.cmd` as the shortcut does. A link's text never reaches a command line that
+would read it: `-File` hands it to the script as an argument, which it ignores, where
+`cmd.exe` would run any `&` in it.
+
 Phone access (`ui/phone.py`, `sh install.sh --phone`) adds two things on the Mac, and
 leaves the page listening there alone. A LaunchAgent holds `127.0.0.1:8765` with launchd's
 `Sockets` and runs `launch.sh --launchd` at the first connection, which syncs the packages
 and then `exec`s the page in the same process, since launchd hands its socket
 (`launch_activate_socket`) only to the process it started; the page serves on it, stops
 when idle as before, and the next connection starts it again, so a restart there is only
-stopping. Job Search on the Desktop sees the agent and lets that same request start the
-page; when the agent does not answer as this copy, it starts the page on the next free
+stopping. Stopping must end the process there: a page that has closed its port but lives
+on holds it, since launchd starts no other while it lives and queues every request for
+it. So the server bounds its own stop, however it is asked to (`server.py`'s
+`SHUTDOWN_GRACE`, `STREAM_BEAT`, `EXIT_DEADLINE`). uvicorn waits three seconds for the
+requests it has, then cancels them. A run's live output is read on a worker thread that
+nothing can cancel, so with nothing new it sends a comment every two seconds, which
+EventSource ignores; that is when the thread comes back to be cancelled, or to find its
+tab gone. Anything still holding the process 30 seconds later is cut off. Before these,
+the stream of a skill waiting for a reply kept a page from ever exiting, and every launch
+then waited two minutes on the port. Job Search on the Desktop sees the agent and lets
+that same request start the page. When the agent's page has stopped serving without
+exiting (it is `server.py`, up over a minute, and holds no listening socket, which only
+`lsof` can tell), the launcher ends it with `launchctl kill`, and launchd starts the page
+afresh for the next request; a page that holds its socket is never ended, however slow.
+When the agent does not answer as this copy, the launcher starts the page on the next free
 port as before, for the Mac alone, and says phone access needs setting up again. The Setup
 tab and the installer share one diagnosis of a setup that has stopped working
 (`phone.diagnose`). And `tailscale serve` gives the Mac an HTTPS address on the user's

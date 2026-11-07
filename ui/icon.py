@@ -2,10 +2,12 @@
 
     python ui/icon.py out.png 512          # one PNG, that many pixels square
     python ui/icon.py --iconset Folder.iconset   # the sizes macOS's iconutil takes
+    python ui/icon.py --ico "Job Search.ico"     # a Windows icon, every size in one file
 
 The page serves it for a phone's home screen (/apple-touch-icon.png, and the
 web app manifest's icons), ui/build_demo.py puts it beside each demo, and
-install.sh turns an iconset of it into Job Search's Desktop icon. Drawn rather
+install.sh turns an iconset of it into Job Search's Desktop icon, and install.ps1
+gives Job Search's shortcuts on Windows its .ico. Drawn rather
 than kept as an image, so the repository holds no binary file for it, and each
 size is drawn at that size, sharp.
 
@@ -13,7 +15,8 @@ For a phone the square is filled to the edge: iOS rounds an icon's corners
 itself, and Android crops a "maskable" icon to its own shape, so the briefcase
 stays within the middle 60%, inside the safe zone both keep. A Mac draws an
 icon as it is, so its iconset is the rounded tile of Apple's icon grid, with
-clear margins (`tile=True`).
+clear margins (`tile=True`). Windows draws an icon as it is too, and takes the
+same tile.
 """
 
 from __future__ import annotations
@@ -33,6 +36,10 @@ GOLD = (0xF2, 0xC1, 0x4E)     # the page's accent
 ICONSET = {"icon_16x16.png": 16, "icon_16x16@2x.png": 32, "icon_32x32.png": 32,
            "icon_32x32@2x.png": 64, "icon_128x128.png": 128, "icon_128x128@2x.png": 256,
            "icon_256x256.png": 256, "icon_256x256@2x.png": 512, "icon_512x512.png": 512}
+
+# The sizes Windows picks from for a shortcut: the Start menu, the taskbar, the
+# Desktop at each of its icon sizes and display scales.
+ICO_SIZES = (16, 24, 32, 48, 64, 128, 256)
 
 
 def _box(x: float, y: float, cx: float, cy: float, hx: float, hy: float, r: float) -> float:
@@ -102,9 +109,28 @@ def write_iconset(folder: str) -> None:
             fh.write(png(size, tile=True))
 
 
+def ico(sizes=ICO_SIZES) -> bytes:
+    """A Windows .ico holding the tile at each size, each image a PNG, which
+    Windows has read inside an .ico since Vista: a directory of (width, height,
+    size, offset), then the images. 256 is written as 0, the byte's limit."""
+    images = [png(size, tile=True) for size in sizes]
+    offset = 6 + 16 * len(images)
+    head = struct.pack("<HHH", 0, 1, len(images))
+    entries = b""
+    for size, image in zip(sizes, images):
+        side = 0 if size >= 256 else size
+        entries += struct.pack("<BBBBHHII", side, side, 0, 0, 1, 32, len(image), offset)
+        offset += len(image)
+    return head + entries + b"".join(images)
+
+
 def main(argv: list[str]) -> int:
     if len(argv) == 2 and argv[0] == "--iconset":
         write_iconset(argv[1])
+        return 0
+    if len(argv) == 2 and argv[0] == "--ico":
+        with open(argv[1], "wb") as fh:
+            fh.write(ico())
         return 0
     if len(argv) == 2 and argv[1].isdigit():
         with open(argv[0], "wb") as fh:

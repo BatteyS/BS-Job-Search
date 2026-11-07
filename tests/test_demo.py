@@ -38,12 +38,16 @@ def test_the_demos_build_without_latex(tmp_path):
     assert build_demo.build(str(tmp_path), pdf=False) == DEMOS
     landing = (tmp_path / "index.html").read_text(encoding="utf-8")
     assert (tmp_path / ".nojekyll").exists()
+    # The SB mark takes this tab to seanbattey.com, with no target to open another.
+    assert '<a class="mark-link" href="https://seanbattey.com" aria-label="seanbattey.com">' in landing
     sheets = 0
     for name in DEMOS:
         assert f'href="{name}/"' in landing
         site = tmp_path / name
         page = (site / "index.html").read_text(encoding="utf-8")
         assert page.index('src="demo.js"') < page.index('src="app.js"')
+        assert ('<a class="brand-mark-link" href="https://seanbattey.com" '
+                'aria-label="seanbattey.com">') in page
         get = bundled(site)["get"]
 
         [row] = get["/api/digests"]
