@@ -11,7 +11,10 @@
 body { margin: 0; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased;
   font: 17px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
 main { max-width: 720px; margin: 0 auto; padding: 56px 20px; }
-.mark { display: block; height: 72px; width: auto; margin: 0 0 20px; color: var(--accent); }
+.mark-link { display: inline-block; margin: 0 0 20px; border-radius: 4px; color: var(--accent); }
+.mark-link:hover { color: var(--accent-hover); }
+.mark-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.mark { display: block; height: 72px; width: auto; }
 h1 { font-size: clamp(32px, 6vw, 44px); line-height: 1.15; letter-spacing: -.02em; margin: 0 0 16px; }
 p { color: var(--muted); }
 a { color: var(--accent); text-underline-offset: .18em; }
@@ -31,7 +34,7 @@ a:hover { color: var(--accent-hover); }
 </head>
 <body>
 <main>
-<svg class="mark" viewBox="10 -12 86 208" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="20"><path d="M22 28v156h28a34 34 0 0 0 0-68H22" stroke-linejoin="miter"/><path d="M76.3 18.4A28 28 0 1 0 50 56a30 30 0 0 1 0 60" stroke-linecap="round" stroke-linejoin="round"/></g></svg>
+<a class="mark-link" href="https://seanbattey.com" aria-label="seanbattey.com"><svg class="mark" viewBox="10 -12 86 208" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="20"><path d="M22 28v156h28a34 34 0 0 0 0-68H22" stroke-linejoin="miter"/><path d="M76.3 18.4A28 28 0 1 0 50 56a30 30 0 0 1 0 60" stroke-linecap="round" stroke-linejoin="round"/></g></svg></a>
 <h1>BS Job Search</h1>
 <p>A job search workflow for Claude Code. It scans job boards, scores each role against
 what you want, and builds a tailored resume and cover letter for the ones you mark. It
