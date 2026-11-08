@@ -16,6 +16,7 @@ from helpers import ROOT, run
 sys.path.insert(0, os.path.join(ROOT, "ui"))
 import build_demo  # noqa: E402
 import build_resume  # noqa: E402  (core puts scripts/ on the path)
+import icon  # noqa: E402
 import tracker  # noqa: E402
 
 EXAMPLES = os.path.join(ROOT, "examples")
@@ -46,6 +47,9 @@ def test_the_demos_build_without_latex(tmp_path):
         site = tmp_path / name
         page = (site / "index.html").read_text(encoding="utf-8")
         assert page.index('src="demo.js"') < page.index('src="app.js"')
+        # Each icon named with the drawing's fingerprint, as the page names them (icon.stamp).
+        assert f'href="favicon.png?v={icon.fingerprint()}"' in page
+        assert all((site / f).is_file() for f in icon.FILES)
         assert ('<a class="brand-mark-link" href="https://seanbattey.com" '
                 'aria-label="seanbattey.com">') in page
         get = bundled(site)["get"]

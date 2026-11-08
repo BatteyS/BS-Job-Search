@@ -561,12 +561,15 @@ LOCAL_NAMES = ("127.0.0.1", "localhost", "[::1]")
 def manifest(name: str = "BS Job Search") -> dict:
     """The web app manifest that makes the page an app on a phone's home
     screen: its name under the icon, the icon itself (ui/icon.py), and opening
-    full screen. Every path is relative, so a demo in a subfolder works too."""
+    full screen. Every path is relative, so a demo in a subfolder works too, and
+    each icon carries the drawing's fingerprint (icon.stamp says why)."""
+    import icon
+    v = f"?v={icon.fingerprint()}"
     return {"name": name, "short_name": "Job Search", "start_url": "./", "scope": "./",
             "display": "standalone", "background_color": "#17120d", "theme_color": "#17120d",
-            "icons": [{"src": "icon-192.png", "sizes": "192x192", "type": "image/png"},
-                      {"src": "icon-512.png", "sizes": "512x512", "type": "image/png"},
-                      {"src": "icon-512.png", "sizes": "512x512", "type": "image/png",
+            "icons": [{"src": f"icon-192.png{v}", "sizes": "192x192", "type": "image/png"},
+                      {"src": f"icon-512.png{v}", "sizes": "512x512", "type": "image/png"},
+                      {"src": f"icon-512.png{v}", "sizes": "512x512", "type": "image/png",
                        "purpose": "maskable"}]}
 
 

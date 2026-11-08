@@ -138,10 +138,12 @@ CSP = ("default-src 'self'; img-src 'self' data:; base-uri 'self'; form-action '
 def page_html() -> str:
     """index.html with this copy's version in its title and header
     (core.version), so a tab, a phone's copy, or a screenshot says which
-    version it shows."""
+    version it shows, and its icons named by the drawing's fingerprint
+    (icon.stamp), so a browser that kept an older one fetches this one."""
     import html
+    import icon as drawn
     with open(os.path.join(HERE, "index.html"), encoding="utf-8") as fh:
-        page = fh.read()
+        page = drawn.stamp(fh.read())
     v = core.version()
     text = core.version_text(v)
     if not text:
@@ -186,23 +188,38 @@ def sw_js():
     return FileResponse(os.path.join(HERE, "sw.js"), media_type="text/javascript", headers=FRESH)
 
 
-# The page as an app on a phone's home screen: its manifest, and the icon
-# (ui/icon.py) at the sizes iOS and Android ask for.
-ICONS = {"apple-touch-icon.png": 180, "icon-192.png": 192, "icon-512.png": 512}
+# The icon (ui/icon.py) for a browser tab and a phone's home screen, and the
+# manifest that makes the page an app there. The page names each with the
+# drawing's fingerprint (icon.stamp): what is asked for under the current one
+# never changes, so it may be kept for good; anything else is asked again.
+def icon_cache(v: str) -> dict:
+    import icon as drawn
+    if v == drawn.fingerprint():
+        return {"Cache-Control": "public, max-age=31536000, immutable"}
+    return FRESH
 
 
 @app.get("/manifest.webmanifest")
-def manifest():
-    return JSONResponse(core.manifest(), media_type="application/manifest+json")
+def manifest(v: str = ""):
+    return JSONResponse(core.manifest(), media_type="application/manifest+json",
+                        headers=icon_cache(v))
 
 
 @app.get("/{name}.png")
-def icon(name: str):
+def icon(name: str, v: str = ""):
     import icon as drawn
-    if f"{name}.png" not in ICONS:
+    if f"{name}.png" not in drawn.FILES:
         raise HTTPException(404, "no such icon")
-    return Response(drawn.png(ICONS[f"{name}.png"]), media_type="image/png",
-                    headers={"Cache-Control": "max-age=86400"})
+    size, tile = drawn.FILES[f"{name}.png"]
+    return Response(drawn.png(size, tile=tile), media_type="image/png", headers=icon_cache(v))
+
+
+@app.get("/favicon.ico")
+def favicon(v: str = ""):
+    """What a browser asks for when a page names no icon, as a bookmark may."""
+    import icon as drawn
+    return Response(drawn.ico((16, 32, 48, 64), tile=False), media_type="image/x-icon",
+                    headers=icon_cache(v))
 
 
 # ---------------------------------------------------------------- digests

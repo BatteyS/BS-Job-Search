@@ -24,8 +24,8 @@
 
 const CACHE = "bs-job-search-1";        // a new name makes phones save afresh
 const HERE = self.location.href.replace(/sw\.js$/, "");
-const SHELL = ["", "app.js", "style.css", "manifest.webmanifest", "apple-touch-icon.png",
-               "icon-192.png", "icon-512.png"].map(name => HERE + name);
+const SHELL = ["", "app.js", "style.css", "manifest.webmanifest", "favicon.png",
+               "apple-touch-icon.png", "icon-192.png", "icon-512.png"].map(name => HERE + name);
 const PAGE = SHELL[0];
 const API = HERE + "api/";
 const HEALTH = API + "health";          // the page's own truth about the Mac: never from the copy

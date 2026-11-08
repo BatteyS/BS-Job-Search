@@ -171,14 +171,15 @@ def write_site(name: str, meta: dict, repo: str, get: dict, out: str) -> None:
     page = page.replace(tag, '<script src="demo.js"></script>\n' + tag)
     page = page.replace("<title>BS Job Search</title>",
                         f"<title>BS Job Search demo: {html.escape(meta['who'])}</title>")
+    page = icon.stamp(page)
     with open(os.path.join(site, "index.html"), "w", encoding="utf-8") as fh:
         fh.write(page)
     # What makes a demo addable to a phone's home screen, as the page is.
     with open(os.path.join(site, "manifest.webmanifest"), "w", encoding="utf-8") as fh:
         json.dump(core.manifest(f"BS Job Search demo: {meta['who']}"), fh, indent=1)
-    for file, size in (("apple-touch-icon.png", 180), ("icon-192.png", 192), ("icon-512.png", 512)):
+    for file, (size, tile) in icon.FILES.items():
         with open(os.path.join(site, file), "wb") as fh:
-            fh.write(icon.png(size))
+            fh.write(icon.png(size, tile=tile))
     shutil.copytree(os.path.join(repo, "Applications"), os.path.join(site, "files"))
     banner = (f"<b>Demo:</b> {html.escape(meta['who'])}, {html.escape(meta['about'])}. Every "
               "person, employer, and posting here is invented, and nothing you do here is "

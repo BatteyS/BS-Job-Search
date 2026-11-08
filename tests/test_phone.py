@@ -388,5 +388,6 @@ def test_the_mac_icon_is_a_rounded_tile_on_a_clear_canvas():
 def test_the_manifest_makes_the_page_an_app():
     m = core.manifest()
     assert m["display"] == "standalone" and m["start_url"] == "./"
-    assert {i["src"] for i in m["icons"]} == {"icon-192.png", "icon-512.png"}
+    v = icon.fingerprint()
+    assert {i["src"] for i in m["icons"]} == {f"icon-192.png?v={v}", f"icon-512.png?v={v}"}
     assert any(i.get("purpose") == "maskable" for i in m["icons"])

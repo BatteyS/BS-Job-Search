@@ -885,9 +885,10 @@ def _request(method: str, path: str, headers: dict | None = None) -> tuple[int, 
     import asyncio
     import server
     sent_headers = {"host": "127.0.0.1:8765", **(headers or {})}
+    path, _, query = path.partition("?")
     scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
              "method": method, "scheme": "http", "path": path, "raw_path": path.encode(),
-             "query_string": b"", "root_path": "", "client": ("127.0.0.1", 50000),
+             "query_string": query.encode(), "root_path": "", "client": ("127.0.0.1", 50000),
              "server": ("127.0.0.1", 8765),
              "headers": [(k.encode("latin-1"), v.encode("latin-1")) for k, v in sent_headers.items()]}
     sent, asked = [], []
@@ -956,7 +957,7 @@ def test_the_page_and_the_worker_are_served_with_their_types_and_a_policy(repo):
         sw = fh.read()
     listed = re.search(r"const SHELL = \[(.*?)\]", sw, re.S).group(1)
     files = ["/" + name for name in re.findall(r'"([^"]*)"', listed)]
-    assert len(files) == 7 and "/" in files and "/app.js" in files
+    assert len(files) == 8 and "/" in files and "/app.js" in files and "/favicon.png" in files
     kinds = {"/": "text/html", ".js": "text/javascript", ".css": "text/css",
              ".webmanifest": "application/manifest+json", ".png": "image/png"}
     for p in files:
@@ -969,6 +970,57 @@ def test_the_page_and_the_worker_are_served_with_their_types_and_a_policy(repo):
     # The reads the worker keeps are the ones the snapshot sends.
     kept = re.search(r"const KEPT = /(.*)/;", sw).group(1)
     assert kept.replace("\\/", "/") == core.SNAPSHOT_PATH.pattern
+
+
+def test_the_tab_icon_is_named_in_the_page_by_the_drawings_fingerprint(repo):
+    """Safari keeps a tab's icon by the icon's address for good, and ignores one
+    a script swaps in. So the page as served names every icon file, and its
+    manifest, with ?v=<fingerprint> (icon.stamp), and a new drawing has new
+    addresses: Safari went on showing the icon from before the redesign."""
+    pytest.importorskip("fastapi")
+    import re
+    import icon
+    v = icon.fingerprint()
+    status, _, body = _request("GET", "/")
+    page = body.decode("utf-8")
+    assert status == 200
+    # With a sizes attribute, Safari fetched the first icon and never another.
+    assert f'<link rel="icon" type="image/png" href="favicon.png?v={v}">' in page
+    assert f'href="apple-touch-icon.png?v={v}"' in page
+    assert f'href="manifest.webmanifest?v={v}"' in page
+    assert not re.search(r'href="[^"?]+\.(png|ico|webmanifest)"', page), "an icon without its fingerprint"
+
+    # Under the current fingerprint a file never changes, so it is kept for good;
+    # any other address, an older page's, is asked for again.
+    status, head, body = _request("GET", f"/favicon.png?v={v}")
+    assert status == 200 and head["content-type"] == "image/png"
+    assert "immutable" in head["cache-control"] and body == icon.png(64)
+    # Filled to the edge: Safari puts white behind a tab icon's clear pixels.
+    assert all(not tile for _, tile in icon.FILES.values())
+    status, head, body = _request("GET", "/favicon.png?v=0ld")
+    assert status == 200 and head["cache-control"] == "no-cache"
+    for name, (size, tile) in icon.FILES.items():
+        assert _request("GET", f"/{name}?v={v}")[2] == icon.png(size, tile=tile), name
+    assert _request("GET", "/nothing.png")[0] == 404
+
+    # A browser asks for /favicon.ico where a page names no icon.
+    status, head, body = _request("GET", "/favicon.ico")
+    assert status == 200 and head["content-type"] == "image/x-icon" and body[:4] == b"\0\0\1\0"
+    assert body == icon.ico((16, 32, 48, 64), tile=False)
+
+    status, head, body = _request("GET", f"/manifest.webmanifest?v={v}")
+    assert status == 200 and "immutable" in head["cache-control"]
+    assert all(i["src"].endswith(f".png?v={v}") for i in json.loads(body)["icons"])
+
+
+def test_the_icons_fingerprint_follows_the_drawing():
+    import hashlib
+    import icon
+    with open(icon.__file__, "rb") as fh:
+        assert icon.fingerprint() == hashlib.sha256(fh.read()).hexdigest()[:12]
+    v = icon.fingerprint()
+    page = '<link rel="icon" href="favicon.png"><a href="favicon.png.txt">'
+    assert icon.stamp(page) == f'<link rel="icon" href="favicon.png?v={v}"><a href="favicon.png.txt">'
 
 
 def test_the_phones_choices_default_to_profile_kept_and_documents_not():

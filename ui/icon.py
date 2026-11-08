@@ -4,8 +4,10 @@
     python ui/icon.py --iconset Folder.iconset   # the sizes macOS's iconutil takes
     python ui/icon.py --ico "Job Search.ico"     # a Windows icon, every size in one file
 
-The page serves it for a phone's home screen (/apple-touch-icon.png, and the
-web app manifest's icons), ui/build_demo.py puts it beside each demo, and
+The page serves it as a browser tab's icon (/favicon.png, and /favicon.ico), for
+a phone's home screen (/apple-touch-icon.png, and the web app manifest's icons),
+each named with this drawing's fingerprint (stamp), ui/build_demo.py puts it
+beside each demo, and
 install.sh turns an iconset of it into Job Search's Desktop icon, and install.ps1
 gives Job Search's shortcuts on Windows its .ico. Drawn rather
 than kept as an image, so the repository holds no binary file for it, and each
@@ -22,6 +24,7 @@ same tile.
 from __future__ import annotations
 
 import functools
+import hashlib
 import math
 import os
 import struct
@@ -40,6 +43,34 @@ ICONSET = {"icon_16x16.png": 16, "icon_16x16@2x.png": 32, "icon_32x32.png": 32,
 # The sizes Windows picks from for a shortcut: the Start menu, the taskbar, the
 # Desktop at each of its icon sizes and display scales.
 ICO_SIZES = (16, 24, 32, 48, 64, 128, 256)
+
+# The icon files a page names: name -> (pixels, tile). Every one is the square
+# filled to the edge, with no clear pixel: Safari puts white behind a tab
+# icon's clear pixels, so the Mac's rounded tile showed in a white box there.
+FILES = {"favicon.png": (64, False), "apple-touch-icon.png": (180, False),
+         "icon-192.png": (192, False), "icon-512.png": (512, False)}
+
+
+@functools.lru_cache(maxsize=None)
+def fingerprint() -> str:
+    """Twelve hex digits that change whenever the drawing can: a hash of this file.
+
+    Safari keeps a tab's icon by the icon's address, for good: it fetches each
+    address once and never asks again, however long the file has changed, and it
+    ignores an icon a script swaps in after the page loads. So a page names each
+    icon file with ?v=<fingerprint> (stamp), and a new drawing has new addresses
+    that every browser fetches afresh. The link must not give `sizes`: with it,
+    Safari fetched the first icon and never another, whatever its address."""
+    with open(os.path.abspath(__file__), "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()[:12]
+
+
+def stamp(page: str) -> str:
+    """The page with ?v=<fingerprint> on each icon it names and on its manifest,
+    whose icons change with them."""
+    for name in (*FILES, "manifest.webmanifest"):
+        page = page.replace(f'href="{name}"', f'href="{name}?v={fingerprint()}"')
+    return page
 
 
 def _box(x: float, y: float, cx: float, cy: float, hx: float, hy: float, r: float) -> float:
@@ -109,11 +140,12 @@ def write_iconset(folder: str) -> None:
             fh.write(png(size, tile=True))
 
 
-def ico(sizes=ICO_SIZES) -> bytes:
-    """A Windows .ico holding the tile at each size, each image a PNG, which
-    Windows has read inside an .ico since Vista: a directory of (width, height,
-    size, offset), then the images. 256 is written as 0, the byte's limit."""
-    images = [png(size, tile=True) for size in sizes]
+def ico(sizes=ICO_SIZES, tile: bool = True) -> bytes:
+    """A Windows .ico holding the tile at each size (or, tile=False, the square
+    filled to the edge, for a browser), each image a PNG, which Windows has read
+    inside an .ico since Vista: a directory of (width, height, size, offset), then
+    the images. 256 is written as 0, the byte's limit."""
+    images = [png(size, tile=tile) for size in sizes]
     offset = 6 + 16 * len(images)
     head = struct.pack("<HHH", 0, 1, len(images))
     entries = b""
