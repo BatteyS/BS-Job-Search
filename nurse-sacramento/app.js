@@ -13,6 +13,15 @@ const DEMO = window.DEMO || null;
 // Whether this tab is on the Mac itself, or on another device, a phone through
 // Tailscale (ui/phone.py): what the page says to do depends on it.
 const ON_MAC = ["127.0.0.1", "localhost", "[::1]", "::1"].includes(location.hostname);
+// On a phone (this page reached over Tailscale, at a .ts.net address), the SB
+// mark also carries this page's address after "#phone=job-search@", the part
+// of a link a browser never sends to a server: seanbattey.com keeps it in the
+// phone's own storage, and its Launch button opens this page on that phone
+// from then on. The link's rel="noreferrer" keeps it from the site's server too.
+if (location.protocol === "https:" && location.hostname.endsWith(".ts.net")) {
+  const mark = $(".brand-mark-link");
+  if (mark) mark.href = "https://seanbattey.com/#phone=job-search@" + encodeURIComponent(location.origin + "/");
+}
 // Off the Mac, a service worker (sw.js) keeps a copy of this page and of what
 // it reads on this device, so the icon opens and shows the digests, the
 // applications and the profile files while the Mac cannot be reached. A
