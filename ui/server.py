@@ -136,10 +136,11 @@ CSP = ("default-src 'self'; img-src 'self' data:; base-uri 'self'; form-action '
 
 
 def page_html() -> str:
-    """index.html with this copy's version in its title and header
-    (core.version), so a tab, a phone's copy, or a screenshot says which
-    version it shows, and its icons named by the drawing's fingerprint
-    (icon.stamp), so a browser that kept an older one fetches this one."""
+    """index.html with this copy's version in its header (core.version), so
+    the page, a phone's copy, or a screenshot says which version it shows, and
+    its icons named by the drawing's fingerprint (icon.stamp), so a browser
+    that kept an older one fetches this one. The tab's title stays "BS Job
+    Search" alone: the version is in the header, and the commit in its tooltip."""
     import html
     import icon as drawn
     with open(os.path.join(HERE, "index.html"), encoding="utf-8") as fh:
@@ -148,11 +149,9 @@ def page_html() -> str:
     text = core.version_text(v)
     if not text:
         return page
-    title = f"BS Job Search {v['label'] or v['commit']}"
     shown = html.escape(text)
     about = html.escape(f"Commit {v['commit']} of {v['date']}"
                         + (", with code edited since" if v["changed"] else ""), quote=True)
-    page = page.replace("<title>BS Job Search</title>", f"<title>{html.escape(title)}</title>", 1)
     return page.replace('<span id="version" class="version"></span>',
                         f'<span id="version" class="version" title="{about}">{shown}</span>', 1)
 
@@ -184,8 +183,12 @@ def style_css():
 @app.get("/sw.js")
 def sw_js():
     """The phone's copy of the page (ui/sw.js): app.js registers it only off
-    the Mac, and it keeps what /api/snapshot sends."""
-    return FileResponse(os.path.join(HERE, "sw.js"), media_type="text/javascript", headers=FRESH)
+    the Mac, and it keeps what /api/snapshot sends. Named with the icon's
+    fingerprint (icon.stamp_worker), so a new drawing is a new worker."""
+    import icon as drawn
+    with open(os.path.join(HERE, "sw.js"), encoding="utf-8") as fh:
+        script = drawn.stamp_worker(fh.read())
+    return Response(script, media_type="text/javascript", headers=FRESH)
 
 
 # The icon (ui/icon.py) for a browser tab and a phone's home screen, and the

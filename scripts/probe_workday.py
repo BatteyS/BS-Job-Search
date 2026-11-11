@@ -92,7 +92,7 @@ def main() -> int:
     for tenant, host, site, n in hits:
         name = args.name if (args.name and len(args.tenants) == 1) else tenant
         print(f'  - name: "{name}"')
-        print(f"    ats: workday")
+        print("    ats: workday")
         print(f"    tenant: {tenant}")
         print(f"    host: {host}")
         print(f"    site: {site}")

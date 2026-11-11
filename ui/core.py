@@ -578,11 +578,19 @@ def manifest(name: str = "BS Job Search") -> dict:
 REMOTE = os.path.join(ROOT, "data", "ui-remote.json")
 _remote: dict = {"mtime": None, "value": None}
 
+# The HTTPS port of this Mac's tailnet address that a phone opens the page on
+# (ui/phone.py). One of Job Search's own, not the address's root on 443: another
+# app on this Mac set up the same way takes the root, and a phone keeps icons,
+# storage and service workers by address, so two apps at one address showed and
+# answered with each other's. A record from before has no `https_port`: it was
+# set up at the root.
+PHONE_HTTPS_PORT = 8443
+
 
 def remote_access() -> dict | None:
-    """{host, login, port} once ui/phone.py has set phone access up, else None.
-    Read again whenever the file changes, so turning it on or off needs no
-    restart."""
+    """{host, login, port, https_port} once ui/phone.py has set phone access
+    up, else None. Read again whenever the file changes, so turning it on or
+    off needs no restart."""
     try:
         mtime = os.path.getmtime(REMOTE)
     except OSError:
@@ -592,13 +600,27 @@ def remote_access() -> dict | None:
             with open(REMOTE, encoding="utf-8") as fh:
                 value = json.load(fh)
             ok = isinstance(value, dict) and value.get("host") and value.get("login")
-            _remote.update(mtime=mtime, value=value if ok else None)
+            _remote.update(mtime=mtime, value={"https_port": 443, **value} if ok else None)
         except (OSError, ValueError):
             _remote.update(mtime=mtime, value=None)
     return _remote["value"]
 
 
-def save_remote_access(host: str | None, login: str | None = None, port: int = 8765) -> None:
+def remote_origin(remote: dict) -> str:
+    """The origin a phone opens the page at, from remote_access()'s record:
+    https://<mac>.<tailnet>.ts.net:8443, or without the port for a record set
+    up at the root."""
+    port = int(remote.get("https_port") or 443)
+    return f"https://{remote['host']}" + ("" if port == 443 else f":{port}")
+
+
+def remote_url(remote: dict) -> str:
+    """The address a phone opens, as the Setup tab and the installer show it."""
+    return remote_origin(remote) + "/"
+
+
+def save_remote_access(host: str | None, login: str | None = None, port: int = 8765,
+                       https_port: int = PHONE_HTTPS_PORT) -> None:
     """Record phone access, or with no host, remove it."""
     if not host:
         try:
@@ -609,7 +631,8 @@ def save_remote_access(host: str | None, login: str | None = None, port: int = 8
     os.makedirs(os.path.dirname(REMOTE), exist_ok=True)
     fd = os.open(REMOTE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        json.dump({"host": host.lower(), "login": login, "port": port}, fh, indent=1)
+        json.dump({"host": host.lower(), "login": login, "port": port, "https_port": https_port},
+                  fh, indent=1)
 
 
 def refusal(host: str | None, origin: str | None, login: str | None = None,
@@ -626,8 +649,9 @@ def refusal(host: str | None, origin: str | None, login: str | None = None,
     which names the Tailscale account asking (`login`, from its
     Tailscale-User-Login header, which serve sets and strips from what it
     forwards). That is answered only once phone access is set up, only for the
-    account recorded then, and only at this Mac's tailnet address, whose own
-    pages are the one other origin allowed."""
+    account recorded then, and only at this Mac's tailnet name. The one other
+    origin allowed is the page's own there, port and all (remote_origin): the
+    root of the same name may be another app's."""
     host = (host or "").strip().lower()
     name = host[:host.find("]") + 1] if host.startswith("[") else host.split(":")[0]
     if forwarded or login is not None:
@@ -638,7 +662,7 @@ def refusal(host: str | None, origin: str | None, login: str | None = None,
             return f"This page answers a phone only through Tailscale, signed in as {remote['login']}."
         if name not in LOCAL_NAMES and name != remote["host"]:
             return f"This page answers only at {remote['host']}, not {host or 'no host'}."
-        if origin is not None and origin.strip().lower() not in (f"https://{remote['host']}",
+        if origin is not None and origin.strip().lower() not in (remote_origin(remote),
                                                                  f"http://{host}"):
             return "A page on another site cannot use this one."
         return None
@@ -1293,7 +1317,7 @@ _version: dict = {"head": "", "value": None}
 
 
 def version() -> dict:
-    """Which version of the page this copy runs, for its title and header.
+    """Which version of the page this copy runs, for its header.
 
     `label` is the template export it is at, "v1.55", from the nearest commit
     whose subject is an export's label, with "+3" when it has three commits
@@ -1335,10 +1359,14 @@ def version() -> dict:
 
 
 def version_text(v: dict | None = None) -> str:
-    """The version as the page shows it: "v1.55 · 96cb983", with "edited"
-    when tracked code differs from that commit. "" outside git."""
+    """The version as the page shows it, with "edited" when tracked code
+    differs from HEAD. A copy of the public template shows its export alone,
+    "v1.55" or "v1.55+3", which is how its user knows it. A copy with no export
+    in its history (the private repository) adds the commit, "#59 · 96cb983",
+    since one pull request number covers many commits there. "" outside git."""
     v = v if v is not None else version()
-    parts = [p for p in (v["label"], v["commit"]) if p]
+    exported = v["label"].startswith("v")
+    parts = [p for p in (v["label"], "" if exported else v["commit"]) if p]
     return " · ".join(parts) + (" · edited" if v["changed"] and parts else "")
 
 

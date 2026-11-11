@@ -580,22 +580,22 @@ def test_the_first_update_stops_before_writing_over_uncommitted_changes(from_the
 
 
 # ---------------------------------------------------------------- version
-# Which version the page shows in its title and header (core.version).
+# Which version the page shows in its header (core.version).
 
 def test_a_clone_shows_the_export_it_is_at_and_commits_since(clone, monkeypatch):
     monkeypatch.setattr(core, "_version", {"head": "", "value": None})
     v = core.version()
     assert v["label"] == "v1.0" and v["commit"] == head(clone)[:7] and not v["changed"]
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", v["date"])
-    assert core.version_text(v) == f"v1.0 · {head(clone)[:7]}"
+    assert core.version_text(v) == "v1.0"          # the export alone: no commit
     commit(clone, "My own change", {"profile/profile.md": "# mine\n"})
     commit(clone, "Another", {"profile/profile.md": "# mine, again\n"})
-    assert core.version()["label"] == "v1.0+2"
+    assert core.version()["label"] == "v1.0+2" and core.version_text() == "v1.0+2"
     # Code edited and not committed says so; a profile file does not count.
     write(clone, {"profile/profile.md": "# edited\n"})
     assert not core.version()["changed"]
     write(clone, {"ui/app.js": "// edited here\n"})
-    assert core.version()["changed"] and core.version_text().endswith(" · edited")
+    assert core.version()["changed"] and core.version_text() == "v1.0+2 · edited"
 
 
 def test_a_copy_with_no_export_is_labeled_by_its_latest_merged_pr(tmp_path, monkeypatch):
@@ -610,6 +610,7 @@ def test_a_copy_with_no_export_is_labeled_by_its_latest_merged_pr(tmp_path, monk
     commit(repo, "Merge pull request #59 from someone/later", {"ui/app.js": "// c\n"})
     commit(repo, "Fix a typo", {"README.md": "x\n"})
     assert core.version()["label"] == "#59"
+    assert core.version_text() == f"#59 · {head(repo)[:7]}"   # the private repo keeps its commit
 
 
 def test_outside_git_there_is_no_version(tmp_path, monkeypatch):
@@ -625,8 +626,8 @@ def test_the_page_carries_its_version_and_a_tag_for_the_phones_copy(clone, monke
     monkeypatch.setattr(core, "_version", {"head": "", "value": None})
     page = server.page_html()
     sha = head(clone)[:7]
-    assert "<title>BS Job Search v1.0</title>" in page
-    assert f'class="version" title="Commit {sha} of ' in page and f">v1.0 · {sha}</span>" in page
+    assert "<title>BS Job Search</title>" in page        # no version in the tab
+    assert f'class="version" title="Commit {sha} of ' in page and ">v1.0</span>" in page
 
     def get(headers):
         scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "GET",

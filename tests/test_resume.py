@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+
 import pytest
 
 import build_resume
-from helpers import example, needs_latex, run
+from helpers import ROOT, example, needs_latex, run
 from build_resume import (check_dates, creates_gap, find_entry, master_format,
                           normalize_sections, parse_master, parse_span)
 
@@ -72,9 +75,14 @@ def test_dropping_a_middle_role_opens_a_gap(tmp_path):
 
 @needs_latex
 @pytest.mark.parametrize("name", EXAMPLES)
-def test_examples_build_to_their_page_limit(name):
+def test_examples_build_to_their_page_limit(name, tmp_path):
+    # Built in a copy of the engine, so the .tex, log and PDF stay out of this repo's Resume/.
+    shutil.copytree(os.path.join(ROOT, "scripts"), tmp_path / "scripts",
+                    ignore=shutil.ignore_patterns("__pycache__"))
+    (tmp_path / "Resume/LaTeX").mkdir(parents=True)
+    shutil.copy(os.path.join(ROOT, "Resume/LaTeX/template.tex"), tmp_path / "Resume/LaTeX")
     code, out = run("build_resume", "--all", "--master", example(name, "master.md"),
-                    "--contact", example(name, "contact.md"), "--out", f"editing_test_{name}")
+                    "--contact", example(name, "contact.md"), cwd=str(tmp_path))
     assert code == 0, out
     pages = EXAMPLES[name][1]
     assert f"pages     : {pages} (limit {pages})" in out

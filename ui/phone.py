@@ -15,10 +15,16 @@ Two pieces, both on this Mac, and the Tailscale app on the phone:
     Desktop, starts it again.
   * Tailscale carries the phone to it. `tailscale serve` gives this Mac an
     HTTPS address that only devices signed in to the same Tailscale account can
-    reach, https://<mac>.<tailnet>.ts.net, and forwards it to the page, which
-    goes on listening on this Mac alone. Serve says who is asking, and the page
-    answers only the account recorded here, in data/ui-remote.json, which never
-    leaves this machine (core.refusal).
+    reach, https://<mac>.<tailnet>.ts.net:8443, and forwards it to the page,
+    which goes on listening on this Mac alone. Serve says who is asking, and the
+    page answers only the account recorded here, in data/ui-remote.json, which
+    never leaves this machine (core.refusal). Never Funnel: the tailnet alone.
+
+The address has a port of its own (core.PHONE_HTTPS_PORT) because the root,
+https://<mac>.<tailnet>.ts.net/ on 443, is the one every app set up this way
+takes, so the last to set up owned it, and a phone keeps icons, storage and a
+service worker by address: two apps there showed each other's icons and pages.
+Setting up and turning off touch only Job Search's port, never the root.
 
 On the phone: install Tailscale and sign in to the same account, open that
 address in Safari (or Chrome on Android), and Add to Home Screen. The Mac has
@@ -47,6 +53,7 @@ LABEL = "io.github.batteys.bs-job-search"
 # Login Items, rather than after /bin/sh.
 APP_ID = "io.github.batteys.bs-job-search"
 PORT = 8765
+HTTPS_PORT = core.PHONE_HTTPS_PORT     # the phone's address: https://<mac>.<tailnet>.ts.net:8443/
 LOG = os.path.expanduser("~/Library/Logs/BS Job Search.log")
 TAILSCALE_APP = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 # The App Store first: a standard (non-admin) account can install from it, and
@@ -301,41 +308,82 @@ def parse_status(data: dict) -> dict:
             "login": user.get("LoginName")}
 
 
-def serve(cli: str, port: int = PORT) -> bool:
-    """Point this Mac's tailnet address at the page. The first time, Tailscale
-    may print a link to turn HTTPS on for the tailnet, and waits until it is."""
+def serve_argv(port: int = PORT, https_port: int = HTTPS_PORT) -> list[str]:
+    """What `tailscale serve` is given: the page, at Job Search's own HTTPS
+    port of this Mac's address, on the tailnet alone (serve, never funnel)."""
+    return ["serve", "--bg", f"--https={https_port}", f"http://127.0.0.1:{port}"]
+
+
+def serve(cli: str, port: int = PORT, https_port: int = HTTPS_PORT) -> bool:
+    """Point Job Search's port of this Mac's tailnet address at the page. The
+    first time, Tailscale may print a link to turn HTTPS on for the tailnet,
+    and waits until it is."""
     say("The first time, Tailscale may print a login.tailscale.com link to turn on HTTPS for your "
         "tailnet: open it (hold Command and double-click it) and click Enable. This step waits up "
         "to 10 minutes for that.")
-    say(f"$ tailscale serve --bg http://127.0.0.1:{port}")
+    argv = serve_argv(port, https_port)
+    say("$ tailscale " + " ".join(argv))
     try:
-        return subprocess.run([cli, "serve", "--bg", f"http://127.0.0.1:{port}"],
-                              timeout=600).returncode == 0
+        return subprocess.run([cli, *argv], timeout=600).returncode == 0
     except (OSError, subprocess.SubprocessError) as exc:
         say(f"tailscale serve did not run: {exc}")
         return False
 
 
-def served(cli: str, port: int = PORT) -> bool | None:
-    """Whether Tailscale forwards this Mac's address to the page, or None when
-    it cannot say, as when it is not running."""
+def parse_serve(data: dict) -> dict[int, str]:
+    """What `tailscale serve status --json` serves at the root of each port of
+    this Mac's address: {port: where it forwards}, such as
+    {443: "http://127.0.0.1:5103", 8443: "http://127.0.0.1:8765"}. A port that
+    serves files or text there, or forwards raw TCP, is taken all the same."""
+    roots: dict[int, str] = {}
+    for port, tcp in ((data or {}).get("TCP") or {}).items():
+        if str(port).isdigit() and (tcp or {}).get("TCPForward"):
+            roots[int(port)] = f"tcp {tcp['TCPForward']}"
+    for hostport, web in ((data or {}).get("Web") or {}).items():
+        port = str(hostport).rpartition(":")[2]
+        root = ((web or {}).get("Handlers") or {}).get("/")
+        if port.isdigit() and root:
+            roots[int(port)] = root.get("Proxy") or root.get("Path") or "text"
+    return roots
+
+
+def serving(cli: str) -> dict[int, str] | None:
+    """parse_serve() of what Tailscale serves now, or None when it cannot say,
+    as when it is not running."""
     try:
         r = subprocess.run([cli, "serve", "status", "--json"], capture_output=True, text=True,
                            timeout=15)
-    except (OSError, subprocess.SubprocessError):
+        return parse_serve(json.loads(r.stdout or "{}")) if r.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError, ValueError, AttributeError):
         return None
-    if r.returncode != 0:
-        return None
-    return f"127.0.0.1:{port}" in (r.stdout or "")
+
+
+def ours(target: str | None, port: int = PORT) -> bool:
+    """Whether a root parse_serve() found forwards to this page."""
+    return (target or "").rstrip("/") in (f"http://127.0.0.1:{port}", f"http://localhost:{port}")
 
 
 def unserve(cli: str) -> bool:
-    """Stop forwarding this Mac's address: whether Tailscale says it has."""
+    """Stop forwarding Job Search's port, and that alone: whether Tailscale
+    says it has. The root, 443, is never touched: another app may serve it."""
     try:
-        return subprocess.run([cli, "serve", "--https=443", "off"], capture_output=True,
+        return subprocess.run([cli, "serve", f"--https={HTTPS_PORT}", "off"], capture_output=True,
                               timeout=30).returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
+
+
+def old_root(cli: str, roots: dict[int, str] | None, host: str | None) -> str:
+    """When the root of this Mac's address still forwards to the page, as phone
+    access set it up before it had a port of its own: what to say about it.
+    Said, never done, since another app on this Mac may be set up there."""
+    if not roots or HTTPS_PORT == 443 or not ours(roots.get(443)):
+        return ""
+    where = f"https://{host}/" if host else "this Mac's address without a port"
+    return (f"Tailscale still forwards {where}, the address phone access used before it had a "
+            "port of its own, to this page. Job Search leaves that address alone, since another "
+            "app on this Mac may be set up there. If none is, stop it with:\n\n"
+            f"    {_sh(cli)} serve --https=443 off")
 
 
 # ------------------------------------------------------------------- what
@@ -353,6 +401,16 @@ def diagnose(ts: dict, remote: dict | None, agent: dict) -> dict | None:
                         "signed in to another account. Set phone access up again, then open the "
                         "new address on your phone and add it to the Home Screen in place of the "
                         "old icon."}
+    if remote.get("https_port", 443) != HTTPS_PORT:
+        new = core.remote_url({**remote, "https_port": HTTPS_PORT})
+        return {"code": "moved", "label": "new address",
+                "text": f"Job Search on your phone has an address of its own now, {new}, in place "
+                        f"of {core.remote_url(remote)}, which other apps on this Mac can take too: "
+                        "a phone keeps icons and saved pages by address, so two apps there showed "
+                        "each other's. Set phone access up again. Then, on your phone, remove the "
+                        "old Job Search icon, delete this Mac's name under Settings > Apps > "
+                        "Safari > Advanced > Website Data, open the new address in Safari, and add "
+                        "it to the Home Screen."}
     if not ts.get("running") or not ts.get("host"):
         return {"code": "tailscale", "label": "Tailscale is off",
                 "text": f"Open Tailscale (in Applications) on this Mac and sign in as "
@@ -382,9 +440,9 @@ def status() -> dict:
             "move": f"mv {_sh(core.ROOT)} ~/job-search && cd ~/job-search && sh install.sh --phone"
                     if where else None,
             "agent": agent, "tailscale": ts, "remote": remote,
-            "url": f"https://{remote['host']}/" if remote else None,
+            "url": core.remote_url(remote) if remote else None,
             "ready": bool(remote and ts["running"] and ts["host"] == remote["host"]
-                          and agent["loaded"]),
+                          and remote.get("https_port") == HTTPS_PORT and agent["loaded"]),
             "why": None if where else diagnose(ts, remote, agent),
             "setup": f"{here} && sh install.sh --phone",
             "disable": f"{here} && uv run python ui/phone.py disable",
@@ -435,18 +493,35 @@ def enable() -> int:
         say("\nTailscale is installed but not running, or not signed in. Open Tailscale (in "
             "Applications), sign in, then run this again.")
         return 2
+    url = core.remote_url({"host": ts["host"], "https_port": HTTPS_PORT})
+    roots = serving(cli)
+    taken = (roots or {}).get(HTTPS_PORT)
+    if taken and not ours(taken):
+        # Serve would replace it: the very mix-up this port of its own is for.
+        say(f"\nTailscale already serves something else at {url} ({taken}), so Job Search does not "
+            "take that address over. If nothing needs it any more, free it with:\n\n"
+            f"    {_sh(cli)} serve --https={HTTPS_PORT} off\n\nthen run this again.")
+        return 2
+    before = core.remote_access()
     if not serve(cli):
         say("\ntailscale serve did not finish. If it printed a link to turn on HTTPS for your "
             "tailnet, open it, turn HTTPS on, then run this again. Only the tailnet's owner or an "
             "admin of it can: on a tailnet someone else runs, such as an employer's, ask them.")
         return 2
-    core.save_remote_access(ts["host"], ts["login"], PORT)
-    url = f"https://{ts['host']}/"
+    core.save_remote_access(ts["host"], ts["login"], PORT, HTTPS_PORT)
     say(f"  ok  {url} reaches the page from your devices, signed in as {ts['login']}")
+    if before and before.get("https_port") != HTTPS_PORT:
+        say(f"\nThis address is new: the old icon opened {core.remote_url(before)}. On your phone, "
+            "first remove that icon from the Home Screen, and delete " + before["host"] + " under "
+            "Settings > Apps > Safari > Advanced > Website Data, so nothing the phone saved from "
+            "the old address shows in place of the new one.")
     say("\nOn your phone:")
     say("  1. Install the Tailscale app and sign in as " + ts["login"] + ".")
     say(f"  2. Open {url} in Safari (Chrome on Android).")
     say("  3. Share, then Add to Home Screen. The icon opens Job Search like an app.")
+    left = old_root(cli, roots, ts["host"])
+    if left:
+        say("\n" + left)
     say("\n" + SLEEP)
     say("\n" + RECOVER)
     say("\n" + SHARED + f" To turn phone access off: {cd(core.ROOT)} && uv run python ui/phone.py "
@@ -460,18 +535,24 @@ def disable() -> int:
         say(WORKING + " Turning phone access off stops the page.")
         return 1
     cli = find_tailscale()
-    # Only what is on: turning off what is not makes Tailscale fail.
-    left = bool(cli) and served(cli) is not False and not unserve(cli)
+    host = (core.remote_access() or {}).get("host")
+    roots = serving(cli) if cli else None
+    # Only what is on, and only Job Search's port: turning off what is not on
+    # makes Tailscale fail, and the root may be another app's.
+    left = bool(cli) and (roots is None or ours(roots.get(HTTPS_PORT))) and not unserve(cli)
     core.save_remote_access(None)
     remove_agent()
     if left:
         say("Phone access is off on this Mac: the page answers it alone again, and refuses "
             "anything Tailscale still forwards. But Tailscale did not say it stopped forwarding "
-            "this Mac's address to it. Once Tailscale is running, stop that with:\n\n"
-            f"    {_sh(cli)} serve --https=443 off")
+            f"this Mac's port {HTTPS_PORT} to it. Once Tailscale is running, stop that with:\n\n"
+            f"    {_sh(cli)} serve --https={HTTPS_PORT} off")
         return 1
     say("Phone access is off: the page answers this Mac alone again, and Job Search on the "
         "Desktop starts it as before.")
+    rest = old_root(cli, roots, host) if cli else ""
+    if rest:
+        say("\n" + rest)
     return 0
 
 

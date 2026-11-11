@@ -282,11 +282,19 @@ afresh for the next request; a page that holds its socket is never ended, howeve
 When the agent does not answer as this copy, the launcher starts the page on the next free
 port as before, for the Mac alone, and says phone access needs setting up again. The Setup
 tab and the installer share one diagnosis of a setup that has stopped working
-(`phone.diagnose`). And `tailscale serve` gives the Mac an HTTPS address on the user's
-tailnet that forwards to the page, naming the account asking in `Tailscale-User-Login`,
-which serve sets and strips from what it forwards. `core.refusal` answers a forwarded
-request only once `data/ui-remote.json` records phone access, only for that account, and
-only at the Mac's tailnet name, whose own pages are the one other origin it allows. The
+(`phone.diagnose`). And `tailscale serve --https=8443` gives the page an HTTPS address on
+the user's tailnet, `https://<mac>.<tailnet>.ts.net:8443`, that forwards to it, naming
+the account asking in `Tailscale-User-Login`, which serve sets and strips from what it
+forwards. Serve alone, never Funnel. The port is Job Search's own
+(`core.PHONE_HTTPS_PORT`) because the root on 443 is the one every app set up this way
+takes, and a phone keeps icons, storage and service workers by address, so two apps at the
+root showed each other's. Setup refuses a port that serves something else, and turning
+phone access off stops that port alone; a root still forwarding to the page, from a setup
+made before the port, is named with the command that stops it, never touched. A record
+without `https_port` is such a setup, and the Setup tab asks for it to be set up again.
+`core.refusal` answers a forwarded request only once `data/ui-remote.json` records phone
+access, only for that account, and only at the Mac's tailnet name, whose own origin,
+port and all (`core.remote_origin`), is the one other it allows. The
 page carries a web app manifest and an icon drawn in code (`ui/icon.py`), so a phone adds
 it to its home screen as an app; Job Search on the Desktop has the same icon, as a Mac
 tile. A browser tab's icon (`favicon.png`) is the phone's square, filled to the edge, since
@@ -322,6 +330,19 @@ answers again, when the worker takes a fresh snapshot and the page redraws what 
 loaded; when the page's own files changed on the Mac (an update), it reloads. The page is
 served with a Content-Security-Policy that allows only its own files and routes, on the
 Mac and from the copy.
+
+The worker keeps the icons and the manifest by the address the page names them by,
+`?v=<fingerprint>` and all: the server writes the fingerprint into `sw.js` as it serves
+it (`icon.stamp_worker`), so a new drawing is a new worker, which phones install, and it
+saves the new addresses and drops the old, keeping the reads and the phone's choices. A
+saved icon is answered as it is, since one address is one drawing for good; any other
+icon address goes to the Mac. Before this, the worker saved `favicon.png` with no
+fingerprint, dropped every query to match it, and answered each new drawing's address
+with the icon saved at install. Only the page's own files drop the query, so the
+home-screen icon's `./?from=icon` is the page. And the copy is the address's: if the
+page there turns out to be another app's, the worker deletes the copy and itself rather
+than show Job Search in its place. `tests/sw_harness.js` runs the worker in Node against a
+stand-in Mac for the tests.
 
 The page says which version it is in its title and beside its name (`core.version`): the template export a copy is at, "v1.55", with "+3" for commits of its own since; in a copy
 with no export in its history, the private repository the exports come from, the latest

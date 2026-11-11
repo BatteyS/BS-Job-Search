@@ -73,6 +73,15 @@ def stamp(page: str) -> str:
     return page
 
 
+def stamp_worker(script: str) -> str:
+    """ui/sw.js with this drawing's fingerprint in it. The phone's copy keeps
+    each icon by the address the page names it by, so it needs the fingerprint
+    to save them, and a new drawing makes the worker a new one, which phones
+    install: it saves the new icons and drops the old. Without this, the worker
+    answered favicon.png?v=<new> with the favicon.png it saved at first."""
+    return script.replace('const ICONS = "";', f'const ICONS = "{fingerprint()}";', 1)
+
+
 def _box(x: float, y: float, cx: float, cy: float, hx: float, hy: float, r: float) -> float:
     """Signed distance from (x, y) to a rounded rectangle: negative inside."""
     qx, qy = abs(x - cx) - hx + r, abs(y - cy) - hy + r

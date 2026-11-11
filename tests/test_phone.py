@@ -43,7 +43,7 @@ def test_a_forwarded_request_is_refused_until_phone_access_is_set_up(remote):
 
 def test_only_the_account_set_up_reaches_the_page(remote):
     core.save_remote_access(HOST, LOGIN, 8765)
-    assert core.remote_access() == {"host": HOST, "login": LOGIN, "port": 8765}
+    assert core.remote_access() == {"host": HOST, "login": LOGIN, "port": 8765, "https_port": 8443}
     assert core.refusal(HOST, None, LOGIN, True) is None
     assert core.refusal(HOST, None, "AVERY@example.com", True) is None   # logins ignore case
     assert "signed in as avery@example.com" in core.refusal(HOST, None, "someone@example.org", True)
@@ -56,11 +56,26 @@ def test_only_the_account_set_up_reaches_the_page(remote):
 
 def test_the_phones_page_may_post_and_no_other_site_may(remote):
     core.save_remote_access(HOST, LOGIN)
-    assert core.refusal(HOST, f"https://{HOST}", LOGIN, True) is None
-    assert core.refusal(HOST, "https://evil.example", LOGIN, True) == (
+    assert core.remote_url(core.remote_access()) == f"https://{HOST}:8443/"
+    assert core.refusal(f"{HOST}:8443", f"https://{HOST}:8443", LOGIN, True) is None
+    assert core.refusal(f"{HOST}:8443", "https://evil.example", LOGIN, True) == (
         "A page on another site cannot use this one.")
+    # The root of the same name is another app's, which may not post here.
+    assert core.refusal(f"{HOST}:8443", f"https://{HOST}", LOGIN, True) is not None
     # A site open on this Mac cannot borrow the tailnet origin without serve.
-    assert core.refusal("127.0.0.1:8765", f"https://{HOST}") is not None
+    assert core.refusal("127.0.0.1:8765", f"https://{HOST}:8443") is not None
+
+
+def test_a_setup_from_before_the_port_of_its_own_keeps_its_address(remote):
+    """data/ui-remote.json written before phone access had a port of its own
+    has none: its address is the root, until it is set up again."""
+    import json
+    with open(core.REMOTE, "w", encoding="utf-8") as fh:
+        json.dump({"host": HOST, "login": LOGIN, "port": 8765}, fh)
+    old = core.remote_access()
+    assert old["https_port"] == 443 and core.remote_url(old) == f"https://{HOST}/"
+    assert core.refusal(HOST, f"https://{HOST}", LOGIN, True) is None
+    assert core.refusal(HOST, f"https://{HOST}:8443", LOGIN, True) is not None
 
 
 def test_turning_phone_access_off_takes_effect_at_once(remote):
@@ -212,20 +227,108 @@ def test_enable_records_the_address_and_account_the_page_answers(monkeypatch, re
     monkeypatch.setattr(phone, "find_tailscale", lambda: "/fake/tailscale")
     monkeypatch.setattr(phone, "tailscale_status", lambda cli=None: {
         "found": True, "running": True, "host": HOST, "login": LOGIN})
+    monkeypatch.setattr(phone, "serving", lambda cli: {443: "http://127.0.0.1:5103"})
     served = []
-    monkeypatch.setattr(phone, "serve", lambda cli, port=phone.PORT: served.append(port) or True)
+    monkeypatch.setattr(phone, "serve", lambda cli, port=phone.PORT, https_port=phone.HTTPS_PORT:
+                        served.append((port, https_port)) or True)
     assert phone.enable() == 0
-    assert served == [8765]
-    assert core.remote_access()["host"] == HOST
+    assert served == [(8765, 8443)]
+    assert core.remote_access()["host"] == HOST and core.remote_access()["https_port"] == 8443
     out = capsys.readouterr().out
-    assert f"https://{HOST}/" in out and "Add to Home Screen" in out
+    assert f"https://{HOST}:8443/" in out and "Add to Home Screen" in out
+    assert "Website Data" not in out and "still forwards" not in out   # nothing to move from
 
     monkeypatch.setattr(phone, "remove_agent", lambda: None)
     monkeypatch.setattr(phone, "agent_loaded", lambda label=phone.LABEL: False)
-    monkeypatch.setattr(phone, "served", lambda cli, port=phone.PORT: True)
+    monkeypatch.setattr(phone, "serving", lambda cli: {443: "http://127.0.0.1:5103",
+                                                       8443: "http://127.0.0.1:8765"})
     monkeypatch.setattr(phone, "unserve", lambda cli: True)
     assert phone.disable() == 0
     assert core.remote_access() is None
+
+
+SERVING = {   # `tailscale serve status --json`, with another app at the root
+    "TCP": {"443": {"HTTPS": True}, "8443": {"HTTPS": True}},
+    "Web": {f"{HOST}:443": {"Handlers": {"/": {"Proxy": "http://127.0.0.1:5103"}}},
+            f"{HOST}:8443": {"Handlers": {"/": {"Proxy": "http://127.0.0.1:8765"}}}}}
+
+
+def test_tailscale_serve_status_says_what_each_port_forwards_to():
+    assert phone.parse_serve(SERVING) == {443: "http://127.0.0.1:5103", 8443: "http://127.0.0.1:8765"}
+    assert phone.parse_serve({}) == {}
+    # A port that serves files, or forwards raw TCP, is taken all the same.
+    assert phone.parse_serve({"TCP": {"8443": {"TCPForward": "127.0.0.1:22"}}}) == {8443: "tcp 127.0.0.1:22"}
+    assert phone.parse_serve({"Web": {f"{HOST}:8443": {"Handlers": {"/": {"Path": "/srv"}}}}}) == {8443: "/srv"}
+    assert phone.ours("http://127.0.0.1:8765") and phone.ours("http://127.0.0.1:8765/")
+    assert not phone.ours("http://127.0.0.1:5103") and not phone.ours(None)
+
+
+def test_the_page_has_a_port_of_its_own_on_the_tailnet_alone():
+    """The root of this Mac's address is the one every app set up this way
+    takes, and a phone keeps icons and storage by address."""
+    argv = phone.serve_argv()
+    assert argv == ["serve", "--bg", "--https=8443", "http://127.0.0.1:8765"]
+    assert phone.HTTPS_PORT == core.PHONE_HTTPS_PORT == 8443
+    with open(phone.__file__, encoding="utf-8") as fh:
+        code = fh.read()
+    assert '"funnel"' not in code and "--https=443\"" not in code     # never Funnel, never the root
+
+
+def _enable_ready(monkeypatch):
+    monkeypatch.setattr(phone.sys, "platform", "darwin")
+    monkeypatch.setattr(phone, "protected_folder", lambda root, home=None: None)
+    monkeypatch.setattr(phone, "install_agent", lambda: None)
+    monkeypatch.setattr(phone, "find_tailscale", lambda: "/fake/tailscale")
+    monkeypatch.setattr(phone, "tailscale_status", lambda cli=None: {
+        "found": True, "running": True, "host": HOST, "login": LOGIN})
+
+
+def test_enable_never_takes_over_a_port_another_app_serves(monkeypatch, remote, capsys):
+    _enable_ready(monkeypatch)
+    monkeypatch.setattr(phone, "serving", lambda cli: {8443: "http://127.0.0.1:5103"})
+    monkeypatch.setattr(phone, "serve", lambda *a, **k: pytest.fail("serve ran"))
+    assert phone.enable() == 2
+    out = capsys.readouterr().out
+    assert f"https://{HOST}:8443/" in out and "http://127.0.0.1:5103" in out
+    assert core.remote_access() is None
+
+
+def test_moving_from_the_root_says_what_to_do_on_the_phone_and_leaves_the_root(monkeypatch, remote, capsys):
+    """Set up before at the root: the record moves to the port, the phone is
+    told to drop what it saved at the old address, and the root is only
+    named, never turned off, since another app may have it by now."""
+    import json
+    with open(core.REMOTE, "w", encoding="utf-8") as fh:
+        json.dump({"host": HOST, "login": LOGIN, "port": 8765}, fh)
+    core._remote.update(mtime=None, value=None)
+    _enable_ready(monkeypatch)
+    monkeypatch.setattr(phone, "serving", lambda cli: {443: "http://127.0.0.1:8765"})
+    monkeypatch.setattr(phone, "serve", lambda *a, **k: True)
+    assert phone.enable() == 0
+    assert core.remote_access()["https_port"] == 8443
+    out = capsys.readouterr().out
+    assert f"the old icon opened https://{HOST}/" in out and "Website Data" in out
+    assert out.index("Website Data") < out.index(f"Open https://{HOST}:8443/")
+    assert f"still forwards https://{HOST}/" in out and "'/fake/tailscale' serve --https=443 off" in out
+
+
+def test_turning_phone_access_off_turns_off_its_own_port_and_never_the_root(monkeypatch, remote, capsys):
+    import json
+    import subprocess
+    core.save_remote_access(HOST, LOGIN)
+    monkeypatch.setattr(phone, "agent_loaded", lambda label=phone.LABEL: False)
+    monkeypatch.setattr(phone, "remove_agent", lambda: None)
+    monkeypatch.setattr(phone, "find_tailscale", lambda: "/fake/tailscale")
+    ran = []
+
+    def run(argv, **kw):
+        ran.append(argv[1:])
+        out = json.dumps(SERVING) if argv[1:3] == ["serve", "status"] else ""
+        return subprocess.CompletedProcess(argv, 0, stdout=out)
+    monkeypatch.setattr(phone.subprocess, "run", run)
+    assert phone.disable() == 0
+    assert ran == [["serve", "status", "--json"], ["serve", "--https=8443", "off"]]
+    assert "still forwards" not in capsys.readouterr().out      # the root is another app's
 
 
 def test_without_tailscale_the_mac_still_starts_the_page_on_demand(monkeypatch, remote, capsys):
@@ -241,7 +344,7 @@ def test_without_tailscale_the_mac_still_starts_the_page_on_demand(monkeypatch, 
 def test_why_names_the_first_thing_that_stops_phone_access(remote):
     ok = {"running": True, "host": HOST, "login": LOGIN}
     on = {"installed": True, "loaded": True}
-    rec = {"host": HOST, "login": LOGIN, "port": 8765}
+    rec = {"host": HOST, "login": LOGIN, "port": 8765, "https_port": 8443}
     assert phone.diagnose(ok, rec, on) is None
     assert phone.diagnose(ok, None, on) is None                      # never set up
     assert phone.diagnose({**ok, "host": "new-name.tail1234.ts.net"}, rec, on)["code"] == "address"
@@ -251,6 +354,16 @@ def test_why_names_the_first_thing_that_stops_phone_access(remote):
     assert phone.diagnose(ok, rec, {"installed": False, "loaded": False})["code"] == "unfinished"
     switched = phone.diagnose(ok, rec, {"installed": True, "loaded": False})
     assert switched["code"] == "switched-off" and "Login Items" in switched["text"]
+
+
+def test_a_setup_at_the_root_is_asked_to_move_to_its_own_port(remote):
+    ok = {"running": True, "host": HOST, "login": LOGIN}
+    on = {"installed": True, "loaded": True}
+    rec = {"host": HOST, "login": LOGIN, "port": 8765, "https_port": 8443}
+    assert phone.diagnose(ok, rec, on) is None
+    moved = phone.diagnose(ok, {**rec, "https_port": 443}, on)
+    assert moved["code"] == "moved" and f"https://{HOST}:8443/" in moved["text"]
+    assert f"https://{HOST}/," in moved["text"] and "Website Data" in moved["text"]
 
 
 def test_status_gives_each_command_with_its_cd(remote, monkeypatch, tmp_path):
@@ -275,15 +388,15 @@ def test_status_gives_each_command_with_its_cd(remote, monkeypatch, tmp_path):
 
 def test_check_says_why_and_what_to_do(remote, monkeypatch, capsys):
     monkeypatch.setattr(phone, "status", lambda: {
-        "ready": False, "protected": None, "url": f"https://{HOST}/",
+        "ready": False, "protected": None, "url": f"https://{HOST}:8443/",
         "why": {"code": "switched-off", "label": "switched off", "text": "Turn it on."},
         "setup": "cd ~/job-search && sh install.sh --phone"})
     assert phone.check() == 1
     out = capsys.readouterr().out
     assert "switched off. Turn it on." in out and "cd ~/job-search && sh install.sh --phone" in out
-    monkeypatch.setattr(phone, "status", lambda: {"ready": True, "url": f"https://{HOST}/"})
+    monkeypatch.setattr(phone, "status", lambda: {"ready": True, "url": f"https://{HOST}:8443/"})
     assert phone.check() == 0
-    assert f"set up: https://{HOST}/" in capsys.readouterr().out
+    assert f"set up: https://{HOST}:8443/" in capsys.readouterr().out
 
 
 def test_disable_never_cuts_off_a_working_run(remote, monkeypatch, capsys):
@@ -303,18 +416,21 @@ def test_disable_says_when_tailscale_may_still_forward(remote, monkeypatch, caps
     monkeypatch.setattr(phone, "agent_loaded", lambda label=phone.LABEL: False)
     monkeypatch.setattr(phone, "remove_agent", lambda: removed.append(True))
     monkeypatch.setattr(phone, "find_tailscale", lambda: "/Applications/Tailscale.app/Contents/MacOS/Tailscale")
-    monkeypatch.setattr(phone, "served", lambda cli, port=phone.PORT: None)     # not running: cannot say
+    monkeypatch.setattr(phone, "serving", lambda cli: None)      # not running: cannot say
     monkeypatch.setattr(phone, "unserve", lambda cli: False)
     assert phone.disable() == 1
     out = capsys.readouterr().out
-    assert "serve --https=443 off" in out and "'/Applications/Tailscale.app/Contents/MacOS/Tailscale'" in out
+    assert "serve --https=8443 off" in out and "'/Applications/Tailscale.app/Contents/MacOS/Tailscale'" in out
+    assert "--https=443" not in out
     assert removed and core.remote_access() is None               # the rest is still undone
 
-    # Nothing served: nothing to turn off, which Tailscale would call an error.
+    # Nothing served on its port: nothing to turn off, which Tailscale would
+    # call an error, and another app's root is left as it is.
     core.save_remote_access(HOST, LOGIN)
-    monkeypatch.setattr(phone, "served", lambda cli, port=phone.PORT: False)
+    monkeypatch.setattr(phone, "serving", lambda cli: {443: "http://127.0.0.1:5103"})
     monkeypatch.setattr(phone, "unserve", lambda cli: pytest.fail("unserve ran"))
     assert phone.disable() == 0
+    assert "--https=443" not in capsys.readouterr().out
 
 
 def test_enable_says_how_to_keep_the_mac_reachable(monkeypatch, remote, capsys):
@@ -325,9 +441,13 @@ def test_enable_says_how_to_keep_the_mac_reachable(monkeypatch, remote, capsys):
     monkeypatch.setattr(phone, "tailscale_status", lambda cli=None: {
         "found": True, "running": True, "host": HOST, "login": LOGIN})
     import subprocess
-    monkeypatch.setattr(phone.subprocess, "run", lambda argv, **kw: subprocess.CompletedProcess(argv, 0))
+    ran = []
+    monkeypatch.setattr(phone.subprocess, "run",
+                        lambda argv, **kw: ran.append(argv) or subprocess.CompletedProcess(argv, 0))
     assert phone.enable() == 0
+    assert ["/fake/tailscale", "serve", "--bg", "--https=8443", "http://127.0.0.1:8765"] in ran
     out = capsys.readouterr().out
+    assert "$ tailscale serve --bg --https=8443 http://127.0.0.1:8765" in out
     assert "login.tailscale.com" in out and "Enable" in out           # before serve waits on it
     assert "Prevent automatic sleeping on power adapter" in out
     assert "app switcher" in out and "127.0.0.1:8765" in out and "phone.py disable" in out
@@ -391,3 +511,20 @@ def test_the_manifest_makes_the_page_an_app():
     v = icon.fingerprint()
     assert {i["src"] for i in m["icons"]} == {f"icon-192.png?v={v}", f"icon-512.png?v={v}"}
     assert any(i.get("purpose") == "maskable" for i in m["icons"])
+
+
+def test_on_a_phone_the_mark_tells_the_sites_launch_button_where_this_page_is():
+    """seanbattey.com's Launch opens an app's phone address once the phone has it, and the
+    site never names anyone's address. So the SB mark, on a page reached over Tailscale,
+    carries this page's address after "#phone=job-search@", which a browser never sends to a
+    server, and the link has no referrer, so the site's server never learns it either."""
+    with open(os.path.join(ROOT, "ui", "index.html"), encoding="utf-8") as fh:
+        page = fh.read()
+    assert ('<a class="brand-mark-link" href="https://seanbattey.com" rel="noreferrer" '
+            'aria-label="seanbattey.com">') in page
+    with open(os.path.join(ROOT, "ui", "app.js"), encoding="utf-8") as fh:
+        app = fh.read()
+    block = app[app.index('if (location.protocol === "https:" && location.hostname.endsWith(".ts.net")) {'):]
+    block = block[:block.index("\n}\n")]
+    assert ('mark.href = "https://seanbattey.com/#phone=job-search@" + '
+            'encodeURIComponent(location.origin + "/");') in block

@@ -65,7 +65,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import inspect
 import logging
 import math
 import os
@@ -140,9 +139,8 @@ class _Errors(logging.Handler):
 
     JobSpy does not raise when a board blocks it or rejects a query; it logs an
     error and returns what it has, so a failure shows only in its log. Best
-    effort: JobSpy names its loggers "JobSpy:<Board>" (1.1) or after the
-    scraper's module, "jobspy.<board>" (1.4). If that changes again this sees
-    nothing, and only raised errors count.
+    effort: JobSpy names its loggers after the scraper's module, "jobspy.<board>".
+    If that changes this sees nothing, and only raised errors count.
     """
 
     REFUSAL = re.compile(r"\b(429|403|blocked|rate.?limit\w*|too many requests)\b", re.I)
@@ -224,13 +222,6 @@ def to_job(row, site: str, metro_hint: str) -> Job | None:
     return j
 
 
-def _accepts(fn, name: str) -> bool:
-    try:
-        return name in inspect.signature(fn).parameters
-    except (TypeError, ValueError):
-        return False
-
-
 def _ranked(tasks, clusters, terms: dict[str, list[str]]):
     """Each cluster's first term in every metro, then its second, and so on."""
     rank: dict[str, int] = {}
@@ -245,26 +236,16 @@ def _board(key: str, scrape_jobs, tasks, hours_old: int, results: int,
     """Run one board's queries. Returns its postings and a status line."""
     cfg = SITES[key]
     site, label = cfg["jobspy"], cfg["label"]
-    extra = {}
-    if cfg.get("fetch_description"):
-        # JobSpy 1.4 calls this fetch_description and applies it to every board;
-        # older releases knew it only as linkedin_fetch_description.
-        if _accepts(scrape_jobs, "fetch_description"):
-            extra["fetch_description"] = True
-        elif key == "linkedin":
-            extra["linkedin_fetch_description"] = True
+    extra = {"fetch_description": True} if cfg.get("fetch_description") else {}
     planned = len(tasks)
     cap = cfg.get("max_queries")
     if cap and planned > cap:
         tasks = tasks[:cap]
 
     errors = _Errors()
-    # JobSpy 1.1 logs as "JobSpy:LinkedIn", 1.4 under its scraper's module,
-    # "jobspy.linkedin". Listening to both keeps either release's errors visible.
-    loggers = [logging.getLogger(f"JobSpy:{label}"),
-               logging.getLogger(f"jobspy.{site.replace('_', '')}")]
-    for logger in loggers:
-        logger.addHandler(errors)
+    # JobSpy logs under its scraper's module, "jobspy.linkedin".
+    logger = logging.getLogger(f"jobspy.{site.replace('_', '')}")
+    logger.addHandler(errors)
 
     def attempt(task) -> tuple[list[Job], bool, bool]:
         """(postings, whether the board refused, whether it logged any error)."""
@@ -324,8 +305,7 @@ def _board(key: str, scrape_jobs, tasks, hours_old: int, results: int,
                     stopped = "errors"
                     break
     finally:
-        for logger in loggers:
-            logger.removeHandler(errors)
+        logger.removeHandler(errors)
 
     # Timed, because the slowest board sets the scan's pace and nothing else
     # would show which one that is.

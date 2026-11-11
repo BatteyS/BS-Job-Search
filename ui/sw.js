@@ -19,14 +19,31 @@
 // asleep; an answer from the copy carries X-Served-From: phone and X-Saved-At,
 // and the page shows the age. Whenever the Mac answers something newer, the
 // page is told ("fresh", or "page" for its own files) and redraws.
+//
+// The icons and the manifest are kept by the address the page names them by,
+// ?v=<the drawing's fingerprint> and all (icon.stamp), which the server writes
+// into this file as ICONS (icon.stamp_worker). One address is one drawing for
+// good, so a saved one is answered as it is; a new drawing makes this a new
+// worker, which saves the new addresses and drops the old. An address the copy
+// does not hold, an older drawing's or one with no fingerprint, goes to the Mac.
+//
+// The copy belongs to this address. If the Mac's address ever answers with
+// another app's page (set up at the same address since), the worker deletes
+// the copy and itself, rather than show Job Search where that app should be.
 
 "use strict";
 
-const CACHE = "bs-job-search-1";        // a new name makes phones save afresh
+const CACHE = "bs-job-search-1";        // a new name makes phones save afresh, settings and all
+const ICONS = "";                       // the drawing's fingerprint: the server writes it in
 const HERE = self.location.href.replace(/sw\.js$/, "");
-const SHELL = ["", "app.js", "style.css", "manifest.webmanifest", "favicon.png",
-               "apple-touch-icon.png", "icon-192.png", "icon-512.png"].map(name => HERE + name);
+const FILES = ["", "app.js", "style.css"];      // the page's own files, asked again each time
+const NAMED = ["manifest.webmanifest", "favicon.png", "apple-touch-icon.png", "icon-192.png", "icon-512.png"];
+const V = ICONS ? "?v=" + ICONS : "";
+const FIXED = V ? NAMED.map(name => HERE + name + V) : [];   // kept as saved, for good
+const OWN = FILES.map(name => HERE + name);
+const SHELL = [...OWN, ...NAMED.map(name => HERE + name + V)];
 const PAGE = SHELL[0];
+const MARK = "<title>BS Job Search";   // in every version of the page (index.html)
 const API = HERE + "api/";
 const HEALTH = API + "health";          // the page's own truth about the Mac: never from the copy
 const SNAPSHOT = API + "snapshot";
@@ -54,6 +71,7 @@ let failed = 0;               // when it last did not
 let snapshotAt = 0;           // when the snapshot was last asked for
 let snapshotting = null;      // the snapshot being taken, if one is
 let settings = null;          // this phone's choices, once read
+let foreign = false;          // another app answers at this address: the worker steps aside
 
 async function choices() {
   if (settings) return settings;
@@ -121,10 +139,16 @@ function same(a, b) {
 
 // The Mac's copy of one of the page's files, kept for next time. When the
 // file changed since the copy was saved, the page is told: its code is out of
-// date and it reloads.
+// date and it reloads. When the page is another app's, the copy is deleted
+// and that page passed on as it came.
 async function refreshShell(cache, url, saved) {
   const fresh = await ask(url, {}, saved ? ASK : COLD);
-  if (!fresh || !fresh.ok) return null;
+  if (!fresh || !fresh.ok || foreign) return null;
+  if (url === PAGE && !(await fresh.clone().text()).includes(MARK)) {
+    foreign = true;
+    await forget();
+    return fresh;
+  }
   if (saved && !same(saved, fresh)) tell({ type: "page", path: path(url) });
   await keep(cache, url, fresh.clone());
   return fresh;
@@ -146,6 +170,7 @@ async function refreshRead(cache, request, url, saved, ms) {
 // read. Asked with the copy's tag, so an unchanged copy costs a 304. Reads the
 // Mac no longer answers (a digest removed) leave the copy.
 async function takeSnapshot() {
+  if (foreign) return false;
   if (snapshotting) return snapshotting;
   if (Date.now() - snapshotAt < SNAPSHOT_EVERY) return false;
   snapshotAt = Date.now();
@@ -249,6 +274,14 @@ self.addEventListener("activate", event => {
     for (const name of await caches.keys()) {
       if (name.startsWith("bs-job-search-") && name !== CACHE && name !== DOCS) await caches.delete(name);
     }
+    // The page's files this worker does not name, an older drawing's icons
+    // among them, leave the copy; the reads and this phone's choices stay.
+    const cache = await caches.open(CACHE);
+    for (const req of await cache.keys()) {
+      if (!req.url.startsWith(API) && req.url !== META && req.url !== SETTINGS && !SHELL.includes(req.url)) {
+        await cache.delete(req);
+      }
+    }
     await self.clients.claim();
     await takeSnapshot();
   })());
@@ -258,6 +291,7 @@ self.addEventListener("activate", event => {
 // its own writes.
 self.addEventListener("message", event => {
   const m = event.data || {};
+  if (foreign) return;
   if (m.type === "refresh") event.waitUntil(takeSnapshot());
   else if (m.type === "settings") event.waitUntil(choose({ profile: !!m.profile, documents: !!m.documents }));
   else if (m.type === "forget") event.waitUntil(forget());
@@ -273,6 +307,7 @@ self.addEventListener("message", event => {
 async function shell(event, url) {
   const cache = await caches.open(CACHE);
   const saved = await cache.match(url);
+  if (saved && FIXED.includes(url)) return saved;      // one drawing for good: nothing to ask
   const fresh = refreshShell(cache, url, saved);       // never rejects
   event.waitUntil(fresh);
   if (url === PAGE) event.waitUntil(fresh.then(r => { if (r) return takeSnapshot(); }));
@@ -306,11 +341,13 @@ async function read(event, request, url) {
 
 self.addEventListener("fetch", event => {
   const request = event.request;
-  if (request.method !== "GET") return;                   // a write goes to the Mac as it is
+  if (request.method !== "GET" || foreign) return;        // a write goes to the Mac as it is
   const url = new URL(request.url);
-  url.search = "";                                        // the icon opens ./?from=icon: the same page
   url.hash = "";
+  // An icon or the manifest by its own address, ?v= and all.
   if (SHELL.includes(url.href)) { event.respondWith(shell(event, url.href)); return; }
+  url.search = "";                                        // the icon opens ./?from=icon: the same page
+  if (OWN.includes(url.href)) { event.respondWith(shell(event, url.href)); return; }
   if (!url.href.startsWith(API) || url.href === HEALTH || url.href === SNAPSHOT) return;
   event.respondWith(read(event, request, url.href));
 });

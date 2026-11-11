@@ -50,7 +50,7 @@ def test_the_demos_build_without_latex(tmp_path):
         # Each icon named with the drawing's fingerprint, as the page names them (icon.stamp).
         assert f'href="favicon.png?v={icon.fingerprint()}"' in page
         assert all((site / f).is_file() for f in icon.FILES)
-        assert ('<a class="brand-mark-link" href="https://seanbattey.com" '
+        assert ('<a class="brand-mark-link" href="https://seanbattey.com" rel="noreferrer" '
                 'aria-label="seanbattey.com">') in page
         get = bundled(site)["get"]
 

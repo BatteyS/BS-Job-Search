@@ -953,20 +953,29 @@ def test_the_page_and_the_worker_are_served_with_their_types_and_a_policy(repo):
     status, head, body = _request("GET", "/")
     assert status == 200 and head["content-security-policy"].startswith("default-src 'self'")
     assert b'<script src="app.js">' in body
-    with open(os.path.join(ROOT, "ui", "sw.js"), encoding="utf-8") as fh:
-        sw = fh.read()
-    listed = re.search(r"const SHELL = \[(.*?)\]", sw, re.S).group(1)
-    files = ["/" + name for name in re.findall(r'"([^"]*)"', listed)]
-    assert len(files) == 8 and "/" in files and "/app.js" in files and "/favicon.png" in files
-    kinds = {"/": "text/html", ".js": "text/javascript", ".css": "text/css",
-             ".webmanifest": "application/manifest+json", ".png": "image/png"}
-    for p in files:
-        status, head, body = _request("GET", p)
-        assert status == 200 and body, p
-        assert head["content-type"].startswith(kinds.get(p) or kinds[os.path.splitext(p)[1]]), p
+    import icon
     status, head, body = _request("GET", "/sw.js")
     assert status == 200 and head["content-type"].startswith("text/javascript")
     assert head["cache-control"] == "no-cache" and b"self.addEventListener" in body
+    sw = body.decode("utf-8")
+    # The worker as served names the icons by the drawing's fingerprint (icon.stamp_worker).
+    v = icon.fingerprint()
+    assert f'const ICONS = "{v}";' in sw
+    files = re.findall(r'"([^"]*)"', re.search(r"const FILES = \[(.*?)\]", sw).group(1))
+    named = re.findall(r'"([^"]*)"', re.search(r"const NAMED = \[(.*?)\]", sw).group(1))
+    assert files == ["", "app.js", "style.css"]
+    # Every icon file the page names, and its manifest: none left to the Mac alone.
+    assert set(named) == {*icon.FILES, "manifest.webmanifest"}
+    kinds = {"/": "text/html", ".js": "text/javascript", ".css": "text/css",
+             ".webmanifest": "application/manifest+json", ".png": "image/png"}
+    for p in ["/" + f for f in files] + [f"/{n}?v={v}" for n in named]:
+        status, head, body = _request("GET", p)
+        assert status == 200 and body, p
+        ext = os.path.splitext(p.partition("?")[0])[1]
+        assert head["content-type"].startswith(kinds.get(p) or kinds[ext]), p
+    # The page carries what the worker takes as Job Search's own (MARK).
+    mark = re.search(r'const MARK = "(.*?)";', sw).group(1)
+    assert mark in _request("GET", "/")[2].decode("utf-8")
     # The reads the worker keeps are the ones the snapshot sends.
     kept = re.search(r"const KEPT = /(.*)/;", sw).group(1)
     assert kept.replace("\\/", "/") == core.SNAPSHOT_PATH.pattern
@@ -1021,6 +1030,40 @@ def test_the_icons_fingerprint_follows_the_drawing():
     v = icon.fingerprint()
     page = '<link rel="icon" href="favicon.png"><a href="favicon.png.txt">'
     assert icon.stamp(page) == f'<link rel="icon" href="favicon.png?v={v}"><a href="favicon.png.txt">'
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="needs Node to run the service worker")
+def test_the_phones_copy_keeps_each_icon_by_its_fingerprint():
+    """ui/sw.js, run in Node against a stand-in Mac (tests/sw_harness.js). It
+    used to answer favicon.png?v=<new drawing> with the favicon.png saved at
+    install, so a redesigned icon never reached a phone that had the worker."""
+    r = subprocess.run(["node", os.path.join(ROOT, "tests", "sw_harness.js"),
+                        os.path.join(ROOT, "ui", "sw.js")], capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    seen = json.loads(r.stdout)
+    copy = "bs-job-search-1"
+    assert "/favicon.png?v=a1" in seen["installed"][copy] and "/favicon.png" not in seen["installed"][copy]
+    # The icon by its address, from the copy, with nothing asked of the Mac.
+    assert seen["icon"]["text"] == "favicon.png drawn as a1" and seen["icon"]["asked"] == []
+    # Another drawing's address, or none, is the Mac's to answer.
+    assert not seen["older"]["intercepted"] and not seen["bare"]["intercepted"]
+    # The icon on the home screen opens ./?from=icon: the same page, from the copy.
+    assert "BS Job Search" in seen["fromIcon"]["text"]
+
+    # A new drawing is a new worker: it saves the new icons and drops the old,
+    # and keeps this phone's choices and what it saved for reading.
+    assert not [u for u in seen["redrawn"][copy] if "?v=a1" in u]
+    assert {"/favicon.png?v=b2", "/apple-touch-icon.png?v=b2", "/__settings", "/api/digests"} <= set(seen["redrawn"][copy])
+    assert seen["newIcon"]["text"] == "favicon.png drawn as b2" and seen["newIcon"]["asked"] == []
+    assert seen["touchIcon"]["text"] == "apple-touch-icon.png drawn as b2"
+    assert not seen["oldIcon"]["intercepted"]
+    assert seen["settings"] == {"profile": False, "documents": False}
+    # No icon refresh tells the page its code changed, which reloads it.
+    assert "page" not in seen["told"]
+
+    # Another app's page at this address: the copy and the worker go.
+    assert seen["unregistered"] and "forgotten" in seen["told"]
+    assert seen["left"] == {} and not seen["afterTakeover"]["intercepted"]
 
 
 def test_the_phones_choices_default_to_profile_kept_and_documents_not():

@@ -236,9 +236,9 @@ cd ~/job-search && sh install.sh --phone
 
 It says when to install or sign in to Tailscale, and may print a `login.tailscale.com`
 link to turn HTTPS on for your tailnet: open it (hold Command and double-click it) and
-click **Enable**. Then it prints your Mac's address,
-`https://<your-mac>.<your-tailnet>.ts.net`, which the Setup tab shows too. On the phone,
-sign in to the Tailscale app,
+click **Enable**. Then it prints Job Search's address on your Mac,
+`https://<your-mac>.<your-tailnet>.ts.net:8443`, which the Setup tab shows too. On the
+phone, sign in to the Tailscale app,
 open that address in Safari (Chrome on Android), and choose **Share**, then **Add to Home
 Screen**. The icon opens the page full screen, like an app, laid out for a phone.
 
@@ -606,8 +606,20 @@ the Mac, since that installer asks for one; its command-line tool is not needed.
 
 The Setup tab, and the installer each time it runs, check that phone access still works,
 and say why when it does not: Tailscale off on the Mac, the Mac renamed, a setup that did
-not finish, or Job Search switched off in System Settings, General, Login Items &
-Extensions. Each comes with what to do, usually the `--phone` command.
+not finish, Job Search switched off in System Settings, General, Login Items &
+Extensions, or a setup from before Job Search had a port of its own. Each comes with what
+to do, usually the `--phone` command.
+
+**Why the address ends in `:8443`.** The address without a port, the root, is the one any
+app set up through Tailscale this way takes, so with a second app on the Mac, whichever
+was set up last owned it, and a phone keeps icons, saved pages and storage by address:
+the two apps showed each other's. So Job Search has a port of its own, and setting it up
+or turning it off touches that port alone, never the root. If you set phone access up
+before it had one, the Setup tab says so: set it up again, then on the phone remove the
+old icon, delete your Mac's `.ts.net` name under Settings, Apps, Safari, Advanced,
+Website Data, open the new address in Safari, and add it to the Home Screen again. When
+the root still forwards to Job Search, the installer says how to stop that, and leaves it
+to you, since another app on the Mac may be set up there by now.
 
 Why it is safe to leave on:
 
@@ -616,7 +628,8 @@ Why it is safe to leave on:
   Desktop. It still stops ten minutes after its last tab closes, and nothing runs between
   uses.
 - **Only your own devices reach it.** Tailscale gives your Mac an address that only
-  devices signed in to your Tailscale account can open, over HTTPS, and passes each
+  devices signed in to your Tailscale account can open, over HTTPS (Tailscale Serve,
+  never Funnel, which would put it on the internet), and passes each
   request to the page, which still listens on the Mac alone. Tailscale says which
   account is asking, and the page answers only the one set up on this Mac
   (`data/ui-remote.json`, which never leaves it).
@@ -633,7 +646,9 @@ this with your copy's folder in it):
 cd ~/job-search && uv run python ui/phone.py disable
 ```
 
-It will not while a run is working in the page, since turning it off stops the page.
+It will not while a run is working in the page, since turning it off stops the page. It
+stops Tailscale forwarding Job Search's port, `:8443`, and leaves the rest of what
+Tailscale serves as it was.
 
 ### Backing up, and a second machine
 
